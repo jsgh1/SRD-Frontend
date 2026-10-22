@@ -1,0 +1,115 @@
+import { useEffect, useState } from 'react';
+import { api, canWrite, type Principal } from './api';
+import { ErrorBox, Loading, Modal } from './ui';
+import { t, useLanguage } from './i18n';
+
+type Photo = { slot: string; version: number; present: boolean; size: number; width: number | null; height: number | null };
+const labels: Record<string, string> = { person: 'Foto de la persona', document: 'Foto del documento', property: 'Foto del predio' };
+const assetLabels: Record<string, string> = { front: 'Vista frontal', side: 'Vista lateral', detail: 'Detalle' };
+
+export function PersonPhotos({ id, kind = 'person', writable = true }: { id: string; kind?: 'person' | 'asset'; writable?: boolean }) {
+  useLanguage();
+  const prefix = kind === 'person' ? 'persons' : 'assets';
+  const [photos, setPhotos] = useState<Photo[]>();
+  const [write, setWrite] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setPhotos(undefined); setError(undefined); setWrite(false);
+    Promise.all([api<{items: Photo[]}>(`${prefix}/${id}/photos`), api<Principal>('me')])
+      .then(([data, principal]) => { if (active) { setPhotos(data.items); setWrite(writable && canWrite(principal.role)); } })
+      .catch(e => { if (active) setError(e); });
+    return () => { active = false; };
+  }, [id, prefix, revision, writable]);
+  return <section className="person-photos" aria-label={t(kind === 'person' ? 'Fotografías de la ficha' : 'Fotografías del bien')}>
+    <h3>{t('Fotografías')}</h3>
+    <p className="muted">{t('JPEG, PNG o WebP de hasta 5 MB. Cada imagen se analiza antes de guardarla.')}</p>
+    <ErrorBox error={error} />
+    {error ? <button type="button" onClick={() => setRevision(r => r + 1)}>{t('Reintentar fotografías')}</button> : !photos ? <Loading /> :
+      <div className="photo-grid">{photos.map(photo => <PhotoCard key={`${prefix}-${id}-${photo.slot}`} id={id} prefix={prefix} initial={photo} writable={write} label={t((kind === 'person' ? labels : assetLabels)[photo.slot])} />)}</div>}
+  </section>;
+}
+
+function PhotoCard({ id, prefix, initial, writable, label }: { id: string; prefix: string; initial: Photo; writable: boolean; label: string }) {
+  useLanguage();
+  const [photo, setPhoto] = useState(initial);
+  const [src, setSrc] = useState<string>();
+  const [error, setError] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+  const [reloadRequired, setReloadRequired] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [message, setMessage] = useState('');
+  const [revision, setRevision] = useState(0);
+  const path = `${prefix}/${id}/photos/${photo.slot}`;
+  useEffect(() => {
+    let active = true;
+    setSrc(undefined);
+    if (photo.present) api<{content: string; mime: string; version: number}>(path)
+      .then(data => {
+        if (!active) return;
+        if (data.version !== photo.version) { setReloadRequired(true); setError(new Error('La fotografía cambió. Recarga antes de continuar.')); return; }
+        setSrc(`data:image/png;base64,${data.content}`);
+      }).catch(e => { if (active) { setError(e); setReloadRequired(true); } });
+    return () => { active = false; };
+  }, [path, photo.present, photo.version, revision]);
+
+  async function reload() {
+    setBusy(true); setError(undefined); setMessage(''); setConfirm(false); setSrc(undefined);
+    try {
+      const data = await api<{items: Photo[]}>(`${prefix}/${id}/photos`);
+      const current = data.items.find(p => p.slot === photo.slot);
+      if (!current) throw new Error('No se pudo consultar la fotografía.');
+      setPhoto(current); setReloadRequired(false); setRevision(r => r + 1);
+    } catch (e) { setError(e); setReloadRequired(true); }
+    finally { setBusy(false); }
+  }
+  async function save(file?: File) {
+    if (!file) return;
+    setError(undefined); setMessage('');
+    if (!/\.(jpe?g|png|webp)$/i.test(file.name) || file.size > 5 * 1024 * 1024 || !file.size) {
+      setError(new Error('Selecciona una imagen JPEG, PNG o WebP de hasta 5 MB.')); return;
+    }
+    setBusy(true); setConfirm(false);
+    try {
+      const content = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1]);
+        reader.onerror = () => reject(new Error('No se pudo leer la imagen.'));
+        reader.readAsDataURL(file);
+      });
+      const saved = await api<Photo>(path, 'PUT', { name: file.name, content, version: photo.version });
+      setPhoto(saved); setMessage('Fotografía guardada.');
+      if (prefix === 'persons' && photo.slot === 'person') window.dispatchEvent(new CustomEvent('srd-person-photo-updated', { detail: id }));
+    } catch (e) { setError(e); setReloadRequired(true); }
+    finally { setBusy(false); }
+  }
+  async function remove() {
+    setBusy(true); setError(undefined); setMessage('');
+    try { setPhoto(await api<Photo>(path, 'DELETE', { confirmed: true, version: photo.version })); setSrc(undefined); setMessage('Fotografía eliminada.'); if (prefix === 'persons' && photo.slot === 'person') window.dispatchEvent(new CustomEvent('srd-person-photo-updated', { detail: id })); }
+    catch (e) { setError(e); setReloadRequired(true); }
+    finally { setBusy(false); setConfirm(false); }
+  }
+  return <article className="photo-card" aria-label={label}>
+    <h4>{label}</h4>
+    {src ? <button type="button" className="photo-preview" aria-label={t('Ampliar {label}', {label: label.toLowerCase()})} onClick={() => setExpanded(true)}><img src={src} alt={label} /></button>
+      : <div className="photo-placeholder">{t(photo.present ? 'Vista previa no disponible todavía' : 'Sin fotografía')}</div>}
+    {photo.present && <p className="muted">{photo.width} × {photo.height} px · {Math.ceil(photo.size / 1024)} KB</p>}
+    <ErrorBox error={error} />
+    {message && <p role="status">{t(message)}</p>}
+    {busy && <p role="status">{t('Procesando fotografía… Espera la confirmación.')}</p>}
+    <div className="photo-actions">
+      <button type="button" disabled={busy} onClick={reload}>{t('Recargar fotografía')}</button>
+      {writable && <>
+        <label className="photo-upload folder-file-label">{t(photo.present ? 'Reemplazar fotografía' : 'Agregar fotografía')}
+          <input className="folder-file-input" type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || reloadRequired} onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; void save(file); }} />
+          <span className="folder-file-picker" aria-hidden="true"><span className="folder-file-button">{t('Seleccionar archivo')}</span><span className="folder-file-name">{t('Ningún archivo seleccionado')}</span></span>
+        </label>
+        {photo.present && <button type="button" disabled={busy || reloadRequired} onClick={() => setConfirm(true)}>{t('Eliminar fotografía')}</button>}
+      </>}
+    </div>
+    {confirm && <div className="photo-confirm"><p>{t('¿Eliminar esta fotografía de la ficha?')}</p><button type="button" disabled={busy} onClick={remove}>{t('Confirmar eliminación')}</button><button type="button" disabled={busy} onClick={() => setConfirm(false)}>{t('Cancelar')}</button></div>}
+    {expanded && src && <Modal title={label} onClose={() => setExpanded(false)}><img className="photo-full" src={src} alt={label} /></Modal>}
+  </article>;
+}
