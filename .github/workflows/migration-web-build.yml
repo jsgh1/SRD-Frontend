@@ -1,0 +1,23 @@
+name: Migration frontend web build
+on:
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  web-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install pinned dependencies
+        working-directory: apps/web
+        run: npm ci --no-audit --no-fund
+      - name: Type-check and build production React web
+        working-directory: apps/web
+        run: npm run build
