@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {ActivityIndicator, AppState, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View} from 'react-native';
+import {ActivityIndicator, AppState, BackHandler, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View} from 'react-native';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import {ApiError, Dashboard, DocumentType, GatewayClient, normalizeOrigin, NotificationPreferences, Organization, PendingPersonInput, Person, PersonPage, Principal, UnconfirmedWriteError} from './src/api';
 import {AgendaScreen, EventScreen, InvitationScreen} from './src/Agenda';
@@ -175,6 +175,52 @@ function App() {
     const timer = setTimeout(() => setResendAfter(value => Math.max(0, value - 1)), 1000);
     return () => clearTimeout(timer);
   }, [resendAfter]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showTerms) {
+        setShowTerms(false);
+        return true;
+      }
+      if (busy) return true;
+      if (!principal) {
+        if (challenge) {
+          const abandonedChallenge = challenge;
+          setChallenge(''); setVerification(''); setResendAfter(0);
+          if (client) client.cancel(abandonedChallenge).catch(() => undefined);
+          return true;
+        }
+        if (recovering) {
+          setRecovering(false); setPassword(''); setShowPassword(false);
+          return true;
+        }
+        if (organization) {
+          setOrganization(null); setClient(null); setAccepted(false);
+          setCode(''); setEmail(''); setPassword(''); setShowPassword(false);
+          setRecovering(false); setError(''); setNotice('');
+          return true;
+        }
+        return false;
+      }
+      if (screen === 'home') return false;
+      if (screen === 'event') {
+        setSelectedEvent(null); setScreen(eventBack);
+        return true;
+      }
+      if (screen === 'detail') {
+        setPerson(null); setScreen(detailBack);
+        return true;
+      }
+      if (screen === 'switch' && principal.terms_required) return true;
+      if (screen === 'notificationPreferences') {
+        setScreen('notifications');
+        return true;
+      }
+      setScreen('home');
+      return true;
+    });
+    return () => subscription.remove();
+  }, [busy, challenge, client, detailBack, eventBack, organization, principal, recovering, screen, showTerms]);
 
   async function run(task: () => Promise<void>) {
     setBusy(true);

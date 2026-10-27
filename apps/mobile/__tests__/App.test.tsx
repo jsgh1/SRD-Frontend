@@ -4,7 +4,7 @@
 
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
-import {AppState, NativeModules, Text, TextInput} from 'react-native';
+import {AppState, BackHandler, NativeModules, Text, TextInput} from 'react-native';
 import App from '../App';
 
 jest.mock('react-native-safe-area-context', () => {
@@ -36,6 +36,29 @@ function button(tree: ReactTestRenderer.ReactTestRenderer, label: string) {
 afterEach(() => {
   delete NativeModules.SrdConnection;
   jest.restoreAllMocks();
+});
+
+test('hardware Back returns from the people list to the dashboard', async () => {
+  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({origin: 'https://srd.example.test', code: organization.code})};
+  let onBack: Parameters<typeof BackHandler.addEventListener>[1] | undefined;
+  jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, listener) => {
+    onBack = listener;
+    return {remove: jest.fn()};
+  });
+  globalThis.fetch = jest.fn()
+    .mockResolvedValueOnce(response(organization))
+    .mockResolvedValueOnce(response(principal))
+    .mockResolvedValueOnce(response({total: 0, today: 0, week: 0, month: 0}))
+    .mockResolvedValueOnce(response({items: [], page: 1, page_size: 10, total: 0}));
+  let tree: ReactTestRenderer.ReactTestRenderer;
+  await ReactTestRenderer.act(async () => {tree = ReactTestRenderer.create(<App />);});
+  await ReactTestRenderer.act(async () => {button(tree!, 'Consultar personas').props.onPress();});
+  expect(JSON.stringify(tree!.toJSON())).toContain('Busca por nombre');
+  let handled = false;
+  await ReactTestRenderer.act(async () => {handled = onBack!({type: 'hardwareBackPress', timeStamp: 0}) ?? false;});
+  expect(handled).toBe(true);
+  expect(JSON.stringify(tree!.toJSON())).toContain('Resumen de registros de tu junta');
+  await ReactTestRenderer.act(async () => tree!.unmount());
 });
 
 test('recupera la sesión vigente sin guardar credenciales', async () => {
