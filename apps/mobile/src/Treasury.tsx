@@ -1,9 +1,8 @@
 import React, {useEffect, useRef, useState} from 'react';
+import {useSrdStyles, useSrdTheme, type SrdTheme} from './theme';
 import {ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import {ApiError, type GatewayClient, type TreasuryReceipt, type TreasurySummary} from './api';
 
-const teal = '#087e79';
-const ink = '#153139';
 const kindLabels: Record<TreasuryReceipt['kind'], string> = {opening: 'Apertura', income: 'Ingreso', expense: 'Egreso', reversal: 'Reverso'};
 const showError = (cause: unknown) => cause instanceof Error ? cause.message : 'No se pudo cargar tesorería. Intenta de nuevo.';
 const money = (value: string) => {
@@ -13,12 +12,15 @@ const money = (value: string) => {
 };
 
 function Button({label, onPress, secondary = false, disabled = false}: {label: string; onPress: () => void; secondary?: boolean; disabled?: boolean}) {
+  const styles = useSrdStyles(createStyles);
   return <Pressable accessibilityRole="button" onPress={onPress} disabled={disabled} style={[styles.button, secondary && styles.secondary, disabled && styles.disabled]}>
     <Text style={[styles.buttonText, secondary && styles.secondaryText]}>{label}</Text>
   </Pressable>;
 }
 
 export function TreasuryScreen({client, onBack, onAuthExpired}: {client: GatewayClient; onBack: () => void; onAuthExpired: () => void}) {
+  const theme = useSrdTheme();
+  const styles = useSrdStyles(createStyles);
   const [data, setData] = useState<TreasurySummary | null>(null);
   const [page, setPage] = useState(1);
   const [queryInput, setQueryInput] = useState('');
@@ -103,7 +105,7 @@ export function TreasuryScreen({client, onBack, onAuthExpired}: {client: Gateway
         <View style={styles.controls}><Button label="Aplicar filtros" onPress={applyFilters} disabled={loading} /><Button label="Actualizar" onPress={() => setRefresh(value => value + 1)} secondary disabled={loading} /></View>
       </View>
       {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-      {loading && <ActivityIndicator accessibilityLabel="Cargando tesorería" color={teal} />}
+      {loading && <ActivityIndicator accessibilityLabel="Cargando tesorería" color={theme.colors.accent} />}
       {data && !loading && data.items.length === 0 && <View style={styles.card}><Text style={styles.help}>No hay movimientos que coincidan con la búsqueda.</Text></View>}
       {data?.items.map(item => <Pressable key={item.id} accessibilityRole="button" onPress={() => {openMovement(item.id);}} style={styles.card}>
         <View style={styles.row}><Text style={styles.cardTitle}>{item.receipt}</Text><Text style={[styles.amount, item.sign < 0 && styles.debit]}>{item.sign < 0 ? '−' : '+'}{money(item.amount)}</Text></View>
@@ -134,35 +136,37 @@ export function TreasuryScreen({client, onBack, onAuthExpired}: {client: Gateway
       </View>
       <Button label="Volver al historial" onPress={closeMovement} secondary />
     </>}
-    {detailBusy && <View style={styles.loading}><ActivityIndicator color={teal} /><Text style={styles.help}>Cargando comprobante…</Text></View>}
+    {detailBusy && <View style={styles.loading}><ActivityIndicator color={theme.colors.accent} /><Text style={styles.help}>Cargando comprobante…</Text></View>}
     {!!detailError && <View style={styles.card}><Text accessibilityRole="alert" style={styles.error}>{detailError}</Text><Button label="Reintentar" onPress={() => {if (selectedId) openMovement(selectedId);}} secondary /><Button label="Volver al historial" onPress={closeMovement} secondary /></View>}
   </>;
 }
 
 function Balance({label, value, prominent = false}: {label: string; value: string; prominent?: boolean}) {
+  const styles = useSrdStyles(createStyles);
   return <View style={[styles.balance, prominent && styles.prominent]}><Text style={styles.balanceLabel}>{label}</Text><Text style={[styles.balanceValue, prominent && styles.prominentValue]}>{money(value)}</Text></View>;
 }
 
 function Fact({label, value}: {label: string; value?: string | null}) {
+  const styles = useSrdStyles(createStyles);
   if (!value) return null;
   return <View style={styles.fact}><Text style={styles.label}>{label}</Text><Text style={styles.factValue}>{value}</Text></View>;
 }
 
-const styles = StyleSheet.create({
-  eyebrow: {color: teal, fontWeight: '800', letterSpacing: 2, fontSize: 11},
-  title: {color: ink, fontSize: 30, fontWeight: '800', lineHeight: 37},
-  lead: {color: '#577078', fontSize: 15, lineHeight: 22, marginBottom: 8},
-  sectionTitle: {color: ink, fontSize: 20, fontWeight: '800', marginTop: 4},
-  card: {backgroundColor: '#fff', padding: 17, borderRadius: 16, gap: 9, elevation: 1},
-  label: {color: ink, fontWeight: '700'}, cardTitle: {color: ink, fontSize: 17, fontWeight: '800'}, factValue: {color: ink, fontSize: 15},
-  fact: {borderBottomWidth: 1, borderBottomColor: '#e8eeee', paddingBottom: 8, gap: 3}, help: {color: '#577078', lineHeight: 20}, link: {color: teal, fontWeight: '800'},
-  input: {borderWidth: 1, borderColor: '#cbd9d9', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: ink, backgroundColor: '#fff'},
+const createStyles = (theme: SrdTheme) => StyleSheet.create({
+  eyebrow: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '800', letterSpacing: 2, fontSize: 11},
+  title: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 30, fontWeight: '800', lineHeight: 37},
+  lead: {fontFamily: theme.typography.family, color: theme.colors.muted, fontSize: 15, lineHeight: 22, marginBottom: 8},
+  sectionTitle: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 20, fontWeight: '800', marginTop: 4},
+  card: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, padding: 17, borderRadius: theme.radius.card, gap: 9, elevation: theme.mode === 'dark' ? 0 : 1},
+  label: {fontFamily: theme.typography.family, color: theme.colors.ink, fontWeight: '700'}, cardTitle: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 17, fontWeight: '800'}, factValue: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 15},
+  fact: {borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingBottom: 8, gap: 3}, help: {fontFamily: theme.typography.family, color: theme.colors.muted, lineHeight: 20}, link: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '800'},
+  input: {borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, paddingHorizontal: 12, paddingVertical: 11, minHeight: 46, fontFamily: theme.typography.family, color: theme.colors.ink, backgroundColor: theme.colors.surface},
   controls: {flexDirection: 'row', alignItems: 'flex-end', gap: 8}, dateField: {flex: 1, gap: 6}, row: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8},
-  amount: {color: '#087e79', fontWeight: '800', flexShrink: 1, textAlign: 'right'}, debit: {color: '#a42e31'},
-  stats: {flexDirection: 'row', flexWrap: 'wrap', gap: 9}, balance: {width: '48%', backgroundColor: '#fff', padding: 14, borderRadius: 14, elevation: 1, gap: 5},
-  prominent: {width: '100%', backgroundColor: '#e8f5f2'}, balanceLabel: {color: '#577078', fontSize: 12, fontWeight: '700'}, balanceValue: {color: ink, fontSize: 18, fontWeight: '800'}, prominentValue: {color: teal, fontSize: 25},
-  button: {backgroundColor: teal, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, alignItems: 'center', justifyContent: 'center', minHeight: 44, flex: 1},
-  secondary: {backgroundColor: '#fff', borderWidth: 1, borderColor: teal}, buttonText: {color: '#fff', fontWeight: '700', textAlign: 'center'}, secondaryText: {color: teal}, disabled: {opacity: 0.5},
-  pager: {flexDirection: 'row', alignItems: 'center', gap: 8}, error: {color: '#a42e31', backgroundColor: '#ffebeb', padding: 12, borderRadius: 8},
-  notice: {backgroundColor: '#fff6db', padding: 13, borderRadius: 10}, loading: {alignItems: 'center', gap: 7, padding: 8},
+  amount: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '800', flexShrink: 1, textAlign: 'right'}, debit: {fontFamily: theme.typography.family, color: theme.colors.danger},
+  stats: {flexDirection: 'row', flexWrap: 'wrap', gap: 9}, balance: {width: '48%', backgroundColor: theme.colors.surface, padding: 14, borderRadius: theme.radius.card, elevation: theme.mode === 'dark' ? 0 : 1, gap: 5},
+  prominent: {width: '100%', backgroundColor: theme.colors.accentSoft}, balanceLabel: {fontFamily: theme.typography.family, color: theme.colors.muted, fontSize: 12, fontWeight: '700'}, balanceValue: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 18, fontWeight: '800'}, prominentValue: {fontFamily: theme.typography.family, color: theme.colors.accent, fontSize: 25},
+  button: {backgroundColor: theme.colors.accent, paddingVertical: 12, paddingHorizontal: 12, borderRadius: theme.radius.control, alignItems: 'center', justifyContent: 'center', minHeight: 44, flex: 1},
+  secondary: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border}, buttonText: {fontFamily: theme.typography.family, color: '#fff', fontWeight: '700', textAlign: 'center'}, secondaryText: {fontFamily: theme.typography.family, color: theme.colors.ink}, disabled: {opacity: 0.55},
+  pager: {flexDirection: 'row', alignItems: 'center', gap: 8}, error: {fontFamily: theme.typography.family, color: theme.colors.error, backgroundColor: theme.colors.errorSoft, borderWidth: 1, borderColor: theme.colors.errorBorder, padding: 12, borderRadius: 8},
+  notice: {fontFamily: theme.typography.family, color: theme.colors.warning, backgroundColor: theme.colors.warningSoft, borderWidth: 1, borderColor: theme.colors.warningBorder, padding: 13, borderRadius: theme.radius.control}, loading: {alignItems: 'center', gap: 7, padding: 8},
 });

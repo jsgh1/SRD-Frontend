@@ -1,10 +1,12 @@
 import React from 'react';
+import {useSrdStyles, useSrdTheme, type SrdTheme} from './theme';
 import {Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import {type NotificationPreferences} from './api';
 
 function Choice({label, detail, checked, busy, onPress}: {
   label: string; detail?: string; checked: boolean; busy: boolean; onPress: () => void;
 }) {
+  const styles = useSrdStyles(createStyles);
   return <Pressable accessibilityRole="checkbox" accessibilityState={{checked, disabled: busy}}
     onPress={onPress} disabled={busy} style={styles.choice}>
     <Text style={styles.mark}>{checked ? '☑' : '□'}</Text>
@@ -16,6 +18,8 @@ export function NotificationPreferencesScreen({draft, busy, unconfirmed, onChang
   draft: NotificationPreferences; busy: boolean; unconfirmed: boolean;
   onChange: (value: NotificationPreferences) => void; onSave: () => void; onBack: () => void;
 }) {
+  const theme = useSrdTheme();
+  const styles = useSrdStyles(createStyles);
   const quietEnabled = draft.quiet_start !== null;
   return <>
     <Text style={styles.eyebrow}>CUENTA PERSONAL</Text>
@@ -36,10 +40,10 @@ export function NotificationPreferencesScreen({draft, busy, unconfirmed, onChang
       {quietEnabled && <View style={styles.hours}>
         <View style={styles.hourField}><Text style={styles.label}>Desde (HH:mm)</Text>
           <TextInput accessibilityLabel="Silencio desde" value={draft.quiet_start ?? ''} onChangeText={value => onChange({...draft, quiet_start: value})}
-            maxLength={5} placeholder="22:00" autoCorrect={false} style={styles.input} editable={!busy} /></View>
+            maxLength={5} placeholder="22:00" autoCorrect={false} style={styles.input} placeholderTextColor={theme.colors.placeholder} editable={!busy} /></View>
         <View style={styles.hourField}><Text style={styles.label}>Hasta (HH:mm)</Text>
           <TextInput accessibilityLabel="Silencio hasta" value={draft.quiet_end ?? ''} onChangeText={value => onChange({...draft, quiet_end: value})}
-            maxLength={5} placeholder="07:00" autoCorrect={false} style={styles.input} editable={!busy} /></View>
+            maxLength={5} placeholder="07:00" autoCorrect={false} style={styles.input} placeholderTextColor={theme.colors.placeholder} editable={!busy} /></View>
       </View>}
       <Text style={styles.help}>El horario usa la hora de Colombia y puede cruzar medianoche. Oculta el distintivo de la campana web, pero conserva los avisos. No cambia tu presencia ni los correos de seguridad. Android aún no entrega avisos push.</Text>
     </View>
@@ -53,22 +57,22 @@ export function NotificationPreferencesScreen({draft, busy, unconfirmed, onChang
   </>;
 }
 
-const styles = StyleSheet.create({
-  eyebrow: {color: '#087e79', fontWeight: '800', letterSpacing: 2, fontSize: 11},
-  title: {color: '#153139', fontSize: 32, fontWeight: '800'},
-  lead: {color: '#577078', fontSize: 16, lineHeight: 23, marginBottom: 10},
-  card: {backgroundColor: '#fff', padding: 18, borderRadius: 14, gap: 14, elevation: 1},
+const createStyles = (theme: SrdTheme) => StyleSheet.create({
+  eyebrow: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '800', letterSpacing: 2, fontSize: 11},
+  title: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 32, fontWeight: '800'},
+  lead: {fontFamily: theme.typography.family, color: theme.colors.muted, fontSize: 16, lineHeight: 23, marginBottom: 10},
+  card: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, padding: 18, borderRadius: theme.radius.card, gap: 14, elevation: theme.mode === 'dark' ? 0 : 1},
   choice: {flexDirection: 'row', alignItems: 'flex-start', gap: 10, minHeight: 44},
-  mark: {color: '#087e79', fontSize: 24},
+  mark: {fontFamily: theme.typography.family, color: theme.colors.accent, fontSize: 24},
   choiceText: {flex: 1, gap: 2},
-  label: {color: '#153139', fontWeight: '700'},
-  help: {color: '#577078', lineHeight: 20},
+  label: {fontFamily: theme.typography.family, color: theme.colors.ink, fontWeight: '700'},
+  help: {fontFamily: theme.typography.family, color: theme.colors.muted, lineHeight: 20},
   hours: {flexDirection: 'row', gap: 10},
   hourField: {flex: 1, gap: 6},
-  input: {borderWidth: 1, borderColor: '#cbd9d9', borderRadius: 11, paddingHorizontal: 12, paddingVertical: 10, color: '#153139'},
-  button: {backgroundColor: '#087e79', paddingVertical: 15, borderRadius: 11, alignItems: 'center', marginTop: 5},
-  buttonText: {color: '#fff', fontWeight: '800', fontSize: 16},
-  secondary: {backgroundColor: '#fff', borderWidth: 1, borderColor: '#087e79'},
-  secondaryText: {color: '#087e79'},
-  disabled: {opacity: 0.5},
+  input: {borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, paddingHorizontal: 12, paddingVertical: 11, minHeight: 46, fontFamily: theme.typography.family, color: theme.colors.ink, backgroundColor: theme.colors.surface},
+  button: {backgroundColor: theme.colors.accent, paddingVertical: 15, borderRadius: theme.radius.control, alignItems: 'center', marginTop: 5},
+  buttonText: {fontFamily: theme.typography.family, color: '#fff', fontWeight: '800', fontSize: 16},
+  secondary: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border},
+  secondaryText: {fontFamily: theme.typography.family, color: theme.colors.ink},
+  disabled: {opacity: 0.55},
 });

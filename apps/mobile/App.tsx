@@ -12,9 +12,8 @@ import {SwitchOrganizationScreen} from './src/SwitchOrganization';
 import {InventoryScreen} from './src/Inventory';
 import {TreasuryScreen} from './src/Treasury';
 import {connectionStore} from './src/connection';
+import {SrdThemeContext, srdThemes, useSrdStyles, useSrdTheme, type SrdTheme} from './src/theme';
 
-const ink = '#153139';
-const teal = '#087e79';
 const documentTypes: Array<{code: DocumentType; label: string}> = [
   {code: 'RC', label: 'Registro Civil'}, {code: 'TI', label: 'Tarjeta de Identidad'},
   {code: 'CC', label: 'Cédula de Ciudadanía'}, {code: 'CE', label: 'Cédula de Extranjería'},
@@ -44,6 +43,7 @@ function App() {
   const [switchUnconfirmed, setSwitchUnconfirmed] = useState(false);
   const [profileName, setProfileName] = useState('');
   const [profilePresence, setProfilePresence] = useState<Principal['user']['presence']>('online');
+  const [profileTheme, setProfileTheme] = useState<Principal['user']['theme']>('light');
   const [listQuery, setListQuery] = useState('');
   const [appliedQuery, setAppliedQuery] = useState('');
   const [personPage, setPersonPage] = useState<PersonPage | null>(null);
@@ -77,6 +77,9 @@ function App() {
   const [foregroundError, setForegroundError] = useState('');
   const [foregroundRetry, setForegroundRetry] = useState(0);
   const lastForegroundRetry = useRef(0);
+  const activeTheme = screen === 'profile' ? profileTheme : principal?.user.theme;
+  const theme = srdThemes[activeTheme === 'dark' ? 'dark' : 'light'];
+  const styles = React.useMemo(() => StyleSheet.create(createAppStyles(theme)), [theme]);
 
   const expireSession = useCallback(() => {
     setPrincipal(null); setDashboard(null); setPersonPage(null); setPerson(null); setScreen('home');
@@ -400,13 +403,14 @@ function App() {
       setPrincipal(current);
       setProfileName(current.user.name);
       setProfilePresence(current.user.presence);
+      setProfileTheme(current.user.theme);
       setScreen('profile');
     });
   }
   function saveProfile() {
     run(async () => {
       if (!client || !principal) return;
-      const saved = await client.updateProfile({name: profileName, presence: profilePresence, theme: principal.user.theme});
+      const saved = await client.updateProfile({name: profileName, presence: profilePresence, theme: profileTheme});
       setPrincipal(current => current ? {...current, user: {...current.user, ...saved}} : current);
       setProfileName(saved.name);
       try {
@@ -571,7 +575,7 @@ function App() {
     }).finally(() => {changingNotice.current = false;});
   }
 
-  if (restoring || restoreError) return <SafeAreaProvider>
+  if (restoring || restoreError) return <SrdThemeContext.Provider value={theme}><SafeAreaProvider>
     <SafeAreaView style={styles.screen}><View style={styles.content}>
       <Text style={styles.title}>{restoring ? 'Comprobando sesión…' : 'No se pudo comprobar la sesión'}</Text>
       {restoring ? <ActivityIndicator /> : <>
@@ -585,9 +589,9 @@ function App() {
         }} secondary />
       </>}
     </View></SafeAreaView>
-  </SafeAreaProvider>;
+  </SafeAreaProvider></SrdThemeContext.Provider>;
 
-  if (principal && (foregroundChecking || foregroundError)) return <SafeAreaProvider>
+  if (principal && (foregroundChecking || foregroundError)) return <SrdThemeContext.Provider value={theme}><SafeAreaProvider>
     <SafeAreaView style={styles.screen}><View style={styles.content}>
       <Text style={styles.title}>{foregroundChecking ? 'Comprobando sesión…' : 'No se pudo comprobar la sesión'}</Text>
       {foregroundChecking ? <ActivityIndicator /> : <>
@@ -595,13 +599,21 @@ function App() {
         <Action label="Reintentar" onPress={() => setForegroundRetry(value => value + 1)} />
       </>}
     </View></SafeAreaView>
-  </SafeAreaProvider>;
+  </SafeAreaProvider></SrdThemeContext.Provider>;
 
-  return <SafeAreaProvider>
-    <StatusBar barStyle="dark-content" />
+  return <SrdThemeContext.Provider value={theme}><SafeAreaProvider>
+    <StatusBar barStyle={theme.mode === 'dark' ? 'light-content' : 'dark-content'} />
     <SafeAreaView style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.brand}><Text style={styles.brandMark}>SRD</Text><Text style={styles.brandDetail}>Sistema de Registro Digital</Text></View>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+        <View style={styles.brand} accessible accessibilityRole="image" accessibilityLabel="SRD, Sistema de Registro Digital">
+          <View style={styles.brandMark} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <View style={styles.brandBuilding}>
+              <View style={styles.brandWindows}><View style={styles.brandWindow} /><View style={styles.brandWindow} /><View style={styles.brandWindow} /><View style={styles.brandWindow} /></View>
+              <View style={styles.brandDoor} />
+            </View>
+          </View>
+          <View style={styles.brandCopy}><Text style={styles.brandTitle}>SRD</Text><Text style={styles.brandDetail}>Sistema de Registro Digital</Text></View>
+        </View>
         {!principal && !challenge && <>
           <Text style={styles.eyebrow}>ACCESO INTERNO</Text><Text style={styles.title}>{recovering ? 'Recuperar acceso' : 'Iniciar sesión'}</Text>
           <Text style={styles.lead}>{recovering ? 'Escribe el correo de tu cuenta para solicitar instrucciones.' : 'Accede al espacio de trabajo de tu junta.'}</Text>
@@ -649,16 +661,20 @@ function App() {
             <Stat label="Total" value={dashboard.total} /><Stat label="Hoy" value={dashboard.today} />
             <Stat label="Esta semana" value={dashboard.week} /><Stat label="Este mes" value={dashboard.month} />
           </View> : <View style={styles.card}><Text style={styles.help}>El resumen no está disponible.</Text><Action label="Reintentar" onPress={() => run(async () => {if (client) setDashboard(await client.dashboard());})} disabled={busy} /></View>}
+          <Text style={styles.navLabel}>PERSONAS</Text>
           <Action label="Consultar personas" onPress={() => {setListQuery(''); loadPeople(1, '');}} disabled={busy} />
           <Action label="Consultar por documento" onPress={() => {setLookupEmpty(false); setScreen('lookup');}} disabled={busy} secondary />
           {['superadmin', 'admin', 'registrar'].includes(principal.role) && <Action label="Registrar persona" onPress={() => {clearDraft(); setScreen('create');}} disabled={busy} secondary />}
+          <Text style={styles.navLabel}>AGENDA Y AVISOS</Text>
           <Action label="Agenda" onPress={() => loadAgenda(bogotaToday())} disabled={busy} secondary />
           <Action label="Mis invitaciones" onPress={() => loadInvitations(1)} disabled={busy} secondary />
           <Action label="Notificaciones" onPress={() => loadNotifications(1)} disabled={busy} secondary />
           {['superadmin', 'admin', 'treasurer'].includes(principal.role) && <>
+            <Text style={styles.navLabel}>GESTIÓN</Text>
             <Action label="Inventario" onPress={() => setScreen('inventory')} disabled={busy} secondary />
             <Action label="Tesorería" onPress={() => setScreen('treasury')} disabled={busy} secondary />
           </>}
+          <Text style={styles.navLabel}>CUENTA</Text>
           <Action label="Mi perfil" onPress={openProfile} disabled={busy} secondary />
           <Action label="Cambiar de junta" onPress={openSwitch} disabled={busy} secondary />
           <Action label="Cerrar sesión" onPress={logout} disabled={busy} secondary />
@@ -670,7 +686,8 @@ function App() {
           onFind={findSwitchTarget} onAccepted={setSwitchAccepted} onSwitch={confirmSwitch}
           onCheck={checkSwitch} onBack={() => setScreen('home')} onLogout={logout} />}
         {!!principal && screen === 'profile' && <ProfileScreen principal={principal} name={profileName}
-          presence={profilePresence} busy={busy} onName={setProfileName} onPresence={setProfilePresence}
+          presence={profilePresence} themeMode={profileTheme} busy={busy} onName={setProfileName}
+          onTheme={setProfileTheme} onPresence={setProfilePresence}
           onSave={saveProfile} onBack={() => setScreen('home')} />}
         {!!principal && !!client && screen === 'inventory' && <InventoryScreen client={client}
           onBack={() => setScreen('home')} onAuthExpired={expireSession} />}
@@ -783,7 +800,7 @@ function App() {
           </View>
           <Action label={detailBack === 'lookup' ? 'Volver a la consulta' : detailBack === 'created' ? 'Volver al registro guardado' : 'Volver a la lista'} onPress={() => {setPerson(null); setScreen(detailBack);}} disabled={busy} secondary />
         </>}
-        {busy && <ActivityIndicator style={styles.busy} color={teal} accessibilityLabel="Cargando" />}
+        {busy && <ActivityIndicator style={styles.busy} color={theme.colors.accent} accessibilityLabel="Cargando" />}
         {!!error && <Text style={styles.error} accessibilityRole="alert">{error}</Text>}
         {!!notice && <Text style={styles.notice}>{notice}</Text>}
       </ScrollView>
@@ -795,64 +812,79 @@ function App() {
         <Action label="Cerrar" onPress={() => setShowTerms(false)} />
       </ScrollView></SafeAreaView>
     </Modal>
-  </SafeAreaProvider>;
+  </SafeAreaProvider></SrdThemeContext.Provider>;
 }
 
 type FieldProps = React.ComponentProps<typeof TextInput> & {label: string};
 function Field({label, ...props}: FieldProps) {
-  return <View style={styles.field}><Text style={styles.label}>{label}</Text><TextInput style={styles.input} placeholderTextColor="#82979b" {...props} /></View>;
+  const theme = useSrdTheme();
+  const styles = useSrdStyles(createAppStyles);
+  return <View style={styles.field}><Text style={styles.label}>{label}</Text><TextInput style={styles.input} {...props}
+    accessibilityLabel={props.accessibilityLabel ?? label} placeholderTextColor={theme.colors.placeholder} />
+  </View>;
 }
 function Action({label, onPress, disabled, secondary = false}: {label: string; onPress: () => void; disabled?: boolean; secondary?: boolean}) {
+  const styles = useSrdStyles(createAppStyles);
   return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[styles.button, secondary && styles.buttonSecondary, disabled && styles.disabled]}><Text style={[styles.buttonText, secondary && styles.buttonTextSecondary]}>{label}</Text></Pressable>;
 }
 function Stat({label, value}: {label: string; value: number}) {
+  const styles = useSrdStyles(createAppStyles);
   return <View style={styles.stat}><Text style={styles.statValue}>{value}</Text><Text style={styles.statLabel}>{label}</Text></View>;
 }
 function Detail({label, value}: {label: string; value?: string | null}) {
+  const styles = useSrdStyles(createAppStyles);
   if (!value) return null;
   return <View style={styles.detailRow}><Text style={styles.detailLabel}>{label}</Text><Text style={styles.detailValue}>{value}</Text></View>;
 }
 function DocumentPicker({value, onChange}: {value: DocumentType; onChange: (value: DocumentType) => void}) {
+  const styles = useSrdStyles(createAppStyles);
   return <View style={styles.typeChoices}>{documentTypes.map(type => <Pressable key={type.code} accessibilityRole="radio" accessibilityState={{selected: value === type.code}} onPress={() => onChange(type.code)} style={[styles.typeChoice, value === type.code && styles.typeChoiceSelected]}>
     <Text style={[styles.typeChoiceText, value === type.code && styles.typeChoiceTextSelected]}>{type.label}</Text>
   </Pressable>)}</View>;
 }
 
-const styles = StyleSheet.create({
-  screen: {flex: 1, backgroundColor: '#f3f7f6'},
-  content: {padding: 24, paddingBottom: 48, gap: 14},
+const createAppStyles = (theme: SrdTheme) => StyleSheet.create({
+  screen: {flex: 1, backgroundColor: theme.colors.background},
+  content: {padding: 24, paddingBottom: 48, gap: 14, width: '100%', maxWidth: 640, alignSelf: 'center'},
   brand: {flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 24},
-  brandMark: {backgroundColor: teal, color: '#fff', fontSize: 16, fontWeight: '800', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 9},
-  brandDetail: {color: ink, fontWeight: '700', fontSize: 13},
-  eyebrow: {color: teal, fontWeight: '800', letterSpacing: 2, fontSize: 11},
-  title: {color: ink, fontSize: 32, fontWeight: '800', lineHeight: 38},
-  lead: {color: '#577078', fontSize: 16, lineHeight: 23, marginBottom: 10},
-  card: {backgroundColor: '#fff', padding: 20, borderRadius: 20, gap: 14, elevation: 2},
-  heading: {color: ink, fontSize: 20, fontWeight: '700'},
-  organization: {color: ink, fontSize: 20, fontWeight: '700'},
-  help: {color: '#577078', lineHeight: 21},
-  field: {gap: 7}, label: {color: ink, fontWeight: '700'},
-  input: {borderWidth: 1, borderColor: '#cbd9d9', borderRadius: 11, paddingHorizontal: 14, paddingVertical: 11, color: ink, backgroundColor: '#fff'},
-  button: {backgroundColor: teal, paddingVertical: 15, borderRadius: 11, alignItems: 'center', marginTop: 5},
-  buttonSecondary: {backgroundColor: '#fff', borderWidth: 1, borderColor: teal},
-  buttonText: {color: '#fff', fontWeight: '800', fontSize: 16}, buttonTextSecondary: {color: teal},
-  disabled: {opacity: 0.5}, link: {color: teal, fontWeight: '700', paddingVertical: 5},
-  checkboxRow: {flexDirection: 'row', alignItems: 'center', gap: 8}, checkbox: {fontSize: 23, color: teal}, checkboxLabel: {color: ink, flex: 1},
+  brandMark: {backgroundColor: theme.colors.accent, width: 42, height: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center'},
+  brandBuilding: {width: 19, height: 23, borderWidth: 2, borderColor: '#fff', borderRadius: 2, alignItems: 'center', paddingTop: 3},
+  brandWindows: {width: 12, height: 10, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignContent: 'space-between'},
+  brandWindow: {width: 4, height: 3, backgroundColor: '#fff'},
+  brandDoor: {position: 'absolute', bottom: 0, width: 5, height: 7, backgroundColor: '#fff'},
+  brandCopy: {gap: 1},
+  brandTitle: {fontFamily: theme.typography.family, color: theme.colors.ink, fontWeight: '800', fontSize: 20, lineHeight: 23},
+  brandDetail: {fontFamily: theme.typography.family, color: theme.colors.muted, fontWeight: '400', fontSize: 11},
+  eyebrow: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '800', letterSpacing: 2, fontSize: 11},
+  title: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 32, fontWeight: '800', lineHeight: 38},
+  lead: {fontFamily: theme.typography.family, color: theme.colors.muted, fontSize: 16, lineHeight: 23, marginBottom: 10},
+  card: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, padding: 20, borderRadius: theme.radius.panel, gap: 14, elevation: theme.mode === 'dark' ? 0 : 1},
+  heading: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 20, fontWeight: '700'},
+  organization: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 20, fontWeight: '700'},
+  help: {fontFamily: theme.typography.family, color: theme.colors.muted, lineHeight: 21},
+  field: {gap: 7}, label: {fontFamily: theme.typography.family, color: theme.colors.ink, fontWeight: '700'},
+  input: {borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, paddingHorizontal: 14, paddingVertical: 11, minHeight: 46, fontFamily: theme.typography.family, color: theme.colors.ink, backgroundColor: theme.colors.surface},
+  button: {backgroundColor: theme.colors.accent, paddingVertical: 15, borderRadius: theme.radius.control, alignItems: 'center', marginTop: 5},
+  buttonSecondary: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border},
+  buttonText: {fontFamily: theme.typography.family, color: '#fff', fontWeight: '800', fontSize: 16}, buttonTextSecondary: {fontFamily: theme.typography.family, color: theme.colors.ink},
+  disabled: {opacity: 0.55}, link: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '700', paddingVertical: 5},
+  checkboxRow: {flexDirection: 'row', alignItems: 'center', gap: 8}, checkbox: {fontSize: 23, fontFamily: theme.typography.family, color: theme.colors.accent}, checkboxLabel: {fontFamily: theme.typography.family, color: theme.colors.ink, flex: 1},
   stats: {flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12},
-  stat: {width: '47%', backgroundColor: '#fff', padding: 18, borderRadius: 16, elevation: 1},
-  statValue: {fontSize: 28, color: ink, fontWeight: '800'}, statLabel: {color: '#577078'},
-  personCard: {backgroundColor: '#fff', padding: 18, borderRadius: 14, gap: 5, elevation: 1},
-  personName: {color: ink, fontSize: 17, fontWeight: '700'}, personMeta: {color: '#577078'},
+  navLabel: {fontFamily: theme.typography.family, color: theme.colors.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, marginTop: 2},
+  stat: {width: '47%', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, padding: 18, borderRadius: theme.radius.card, elevation: theme.mode === 'dark' ? 0 : 1},
+  statValue: {fontSize: 28, fontFamily: theme.typography.family, color: theme.colors.ink, fontWeight: '800'}, statLabel: {fontFamily: theme.typography.family, color: theme.colors.muted},
+  personCard: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, padding: 18, borderRadius: theme.radius.card, gap: 5, elevation: theme.mode === 'dark' ? 0 : 1},
+  personName: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 17, fontWeight: '700'}, personMeta: {fontFamily: theme.typography.family, color: theme.colors.muted},
   pager: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8},
-  detailRow: {borderBottomWidth: 1, borderBottomColor: '#e8eeee', paddingBottom: 10, gap: 3},
-  detailLabel: {color: '#577078', fontSize: 12, fontWeight: '700'}, detailValue: {color: ink, fontSize: 16},
+  detailRow: {borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingBottom: 10, gap: 3},
+  detailLabel: {fontFamily: theme.typography.family, color: theme.colors.muted, fontSize: 12, fontWeight: '700'}, detailValue: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 16},
   typeChoices: {flexDirection: 'row', flexWrap: 'wrap', gap: 8},
-  typeChoice: {borderWidth: 1, borderColor: '#cbd9d9', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 9},
-  typeChoiceSelected: {backgroundColor: teal, borderColor: teal},
-  typeChoiceText: {color: ink, fontSize: 12}, typeChoiceTextSelected: {color: '#fff', fontWeight: '700'},
-  busy: {marginTop: 4}, error: {color: '#a42e31', backgroundColor: '#ffebeb', padding: 12, borderRadius: 8},
-  notice: {color: '#195e4d', backgroundColor: '#e3f5ec', padding: 12, borderRadius: 8},
-  terms: {color: ink, lineHeight: 23, fontSize: 15},
+  typeChoice: {borderWidth: 1, borderColor: theme.colors.border, paddingHorizontal: 10, paddingVertical: 8, borderRadius: theme.radius.control},
+  typeChoiceSelected: {backgroundColor: theme.colors.accent, borderColor: theme.colors.accent},
+  typeChoiceText: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 12}, typeChoiceTextSelected: {fontFamily: theme.typography.family, color: '#fff', fontWeight: '700'},
+  busy: {marginTop: 4}, error: {fontFamily: theme.typography.family, color: theme.colors.error, backgroundColor: theme.colors.errorSoft, borderWidth: 1, borderColor: theme.colors.errorBorder, padding: 12, borderRadius: 8},
+  notice: {fontFamily: theme.typography.family, color: theme.colors.success, backgroundColor: theme.colors.successSoft, borderWidth: 1, borderColor: theme.colors.successBorder, padding: 12, borderRadius: 8},
+  terms: {fontFamily: theme.typography.family, color: theme.colors.ink, lineHeight: 23, fontSize: 15},
 });
 
 export default App;

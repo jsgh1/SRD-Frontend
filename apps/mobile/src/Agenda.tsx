@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import {useSrdStyles, type SrdTheme} from './theme';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
 import {bogotaDateTime, type CalendarEvent, type CalendarInvitation, type InvitationPage} from './calendar';
 
@@ -21,6 +22,7 @@ function displayDate(instant: string): string {
 }
 
 function Button({label, onPress, disabled = false, secondary = false, compact = false}: {label: string; onPress: () => void; disabled?: boolean; secondary?: boolean; compact?: boolean}) {
+  const styles = useSrdStyles(createStyles);
   return <Pressable accessibilityRole="button" onPress={onPress} disabled={disabled} style={[styles.button, secondary && styles.secondary, compact && styles.compact, disabled && styles.disabled]}>
     <Text style={[styles.buttonText, secondary && styles.secondaryText]}>{label}</Text>
   </Pressable>;
@@ -30,6 +32,7 @@ export function AgendaScreen({from, to, events, busy, onMove, onRefresh, onOpen,
   from: string; to: string; events: CalendarEvent[]; busy: boolean;
   onMove: (weeks: number) => void; onRefresh: () => void; onOpen: (id: string) => void; onBack: () => void;
 }) {
+  const styles = useSrdStyles(createStyles);
   return <>
     <Text style={styles.eyebrow}>CALENDARIO DE LA JUNTA</Text>
     <Text style={styles.title}>Agenda</Text>
@@ -51,6 +54,7 @@ export function AgendaScreen({from, to, events, busy, onMove, onRefresh, onOpen,
 }
 
 export function EventScreen({event, busy, onBack}: {event: CalendarEvent; busy: boolean; onBack: () => void}) {
+  const styles = useSrdStyles(createStyles);
   return <>
     <Text style={styles.eyebrow}>{typeNames[event.type] ?? 'EVENTO'}</Text>
     <Text style={styles.title}>{event.title}</Text>
@@ -74,6 +78,7 @@ export function InvitationScreen({page, busy, onOpen, onRespond, onPage, onBack}
   onRespond: (invitation: CalendarInvitation, response: 'accepted' | 'declined') => void;
   onPage: (page: number) => void; onBack: () => void;
 }) {
+  const styles = useSrdStyles(createStyles);
   const [confirmDecline, setConfirmDecline] = useState<string | null>(null);
   return <>
     <Text style={styles.eyebrow}>CALENDARIO PERSONAL</Text>
@@ -108,26 +113,27 @@ export function InvitationScreen({page, busy, onOpen, onRespond, onPage, onBack}
 }
 
 function Fact({label, value}: {label: string; value?: string | null}) {
+  const styles = useSrdStyles(createStyles);
   if (!value) return null;
   return <View style={styles.fact}><Text style={styles.factLabel}>{label}</Text><Text style={styles.factValue}>{value}</Text></View>;
 }
 
-const styles = StyleSheet.create({
-  eyebrow: {color: '#087e79', fontWeight: '800', letterSpacing: 2, fontSize: 11},
-  title: {color: '#153139', fontSize: 32, fontWeight: '800', lineHeight: 38},
-  lead: {color: '#577078', fontSize: 16, lineHeight: 23, marginBottom: 10},
+const createStyles = (theme: SrdTheme) => StyleSheet.create({
+  eyebrow: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '800', letterSpacing: 2, fontSize: 11},
+  title: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 32, fontWeight: '800', lineHeight: 38},
+  lead: {fontFamily: theme.typography.family, color: theme.colors.muted, fontSize: 16, lineHeight: 23, marginBottom: 10},
   controls: {flexDirection: 'row', gap: 8},
-  card: {backgroundColor: '#fff', padding: 18, borderRadius: 14, gap: 6, elevation: 1},
-  date: {color: '#087e79', fontWeight: '700'},
-  eventTitle: {color: '#153139', fontSize: 18, fontWeight: '700'},
-  muted: {color: '#577078', lineHeight: 20},
-  button: {backgroundColor: '#087e79', paddingVertical: 12, paddingHorizontal: 13, borderRadius: 10, alignItems: 'center', justifyContent: 'center', minHeight: 44},
+  card: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, padding: 18, borderRadius: theme.radius.card, gap: 6, elevation: theme.mode === 'dark' ? 0 : 1},
+  date: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '700'},
+  eventTitle: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 18, fontWeight: '700'},
+  muted: {fontFamily: theme.typography.family, color: theme.colors.muted, lineHeight: 20},
+  button: {backgroundColor: theme.colors.accent, paddingVertical: 12, paddingHorizontal: 13, borderRadius: theme.radius.control, alignItems: 'center', justifyContent: 'center', minHeight: 44},
   compact: {flex: 1},
-  secondary: {backgroundColor: '#fff', borderWidth: 1, borderColor: '#087e79'},
-  buttonText: {color: '#fff', fontWeight: '700'}, secondaryText: {color: '#087e79'},
-  disabled: {opacity: 0.5}, fact: {borderBottomWidth: 1, borderBottomColor: '#e8eeee', paddingBottom: 10, gap: 3},
-  factLabel: {color: '#577078', fontSize: 12, fontWeight: '700'}, factValue: {color: '#153139', fontSize: 15},
-  link: {color: '#087e79', fontWeight: '700', paddingVertical: 4},
-  confirm: {backgroundColor: '#f3f7f6', padding: 10, borderRadius: 9, gap: 8},
-  pageLabel: {color: '#577078', alignSelf: 'center'},
+  secondary: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border},
+  buttonText: {fontFamily: theme.typography.family, color: '#fff', fontWeight: '700'}, secondaryText: {fontFamily: theme.typography.family, color: theme.colors.ink},
+  disabled: {opacity: 0.55}, fact: {borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingBottom: 10, gap: 3},
+  factLabel: {fontFamily: theme.typography.family, color: theme.colors.muted, fontSize: 12, fontWeight: '700'}, factValue: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 15},
+  link: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '700', paddingVertical: 4},
+  confirm: {backgroundColor: theme.colors.background, padding: 10, borderRadius: theme.radius.control, gap: 8},
+  pageLabel: {fontFamily: theme.typography.family, color: theme.colors.muted, alignSelf: 'center'},
 });

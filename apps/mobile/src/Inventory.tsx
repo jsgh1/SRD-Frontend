@@ -1,27 +1,30 @@
 import React, {useEffect, useRef, useState} from 'react';
+import {useSrdStyles, useSrdTheme, type SrdTheme} from './theme';
 import {ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import {ApiError, type Asset, type AssetDetail, type AssetMovement, type GatewayClient} from './api';
 
-const teal = '#087e79';
-const ink = '#153139';
 type Filters = {type?: AssetMovement['type']; q?: string; from?: string; to?: string};
 const movementLabels: Record<AssetMovement['type'], string> = {opening: 'Registro inicial', in: 'Entrada', out: 'Salida', adjust: 'Ajuste', retire: 'Baja'};
 const assetType = (type: Asset['type']) => type === 'real_estate' ? 'Inmueble' : 'Mueble';
 const showError = (cause: unknown) => cause instanceof Error ? cause.message : 'No se pudo cargar el inventario. Intenta de nuevo.';
 
 function Button({label, onPress, secondary = false, disabled = false}: {label: string; onPress: () => void; secondary?: boolean; disabled?: boolean}) {
+  const styles = useSrdStyles(createStyles);
   return <Pressable accessibilityRole="button" onPress={onPress} disabled={disabled} style={[styles.button, secondary && styles.secondary, disabled && styles.disabled]}>
     <Text style={[styles.buttonText, secondary && styles.secondaryText]}>{label}</Text>
   </Pressable>;
 }
 
 function Chip({label, selected, onPress}: {label: string; selected: boolean; onPress: () => void}) {
+  const styles = useSrdStyles(createStyles);
   return <Pressable accessibilityRole="button" accessibilityState={{selected}} onPress={onPress} style={[styles.chip, selected && styles.chipSelected]}>
     <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
   </Pressable>;
 }
 
 export function InventoryScreen({client, onBack, onAuthExpired}: {client: GatewayClient; onBack: () => void; onAuthExpired: () => void}) {
+  const theme = useSrdTheme();
+  const styles = useSrdStyles(createStyles);
   const [items, setItems] = useState<Asset[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -122,16 +125,16 @@ export function InventoryScreen({client, onBack, onAuthExpired}: {client: Gatewa
           {(Object.keys(movementLabels) as AssetMovement['type'][]).map(value => <Chip key={value} label={movementLabels[value]} selected={historyDraft.type === value} onPress={() => setHistoryDraft(current => ({...current, type: value}))} />)}
         </View>
         <Text style={styles.label}>Motivo</Text>
-        <TextInput accessibilityLabel="Buscar motivo del movimiento" value={historyDraft.q ?? ''} onChangeText={value => setHistoryDraft(current => ({...current, q: value}))} maxLength={120} style={styles.input} placeholder="Buscar en los motivos" placeholderTextColor="#82979b" />
+        <TextInput accessibilityLabel="Buscar motivo del movimiento" value={historyDraft.q ?? ''} onChangeText={value => setHistoryDraft(current => ({...current, q: value}))} maxLength={120} style={styles.input} placeholder="Buscar en los motivos" placeholderTextColor={theme.colors.placeholder} />
         <View style={styles.controls}>
-          <View style={styles.dateField}><Text style={styles.label}>Desde</Text><TextInput accessibilityLabel="Fecha inicial del historial" value={historyDraft.from ?? ''} onChangeText={value => setHistoryDraft(current => ({...current, from: value}))} placeholder="AAAA-MM-DD" maxLength={10} style={styles.input} placeholderTextColor="#82979b" /></View>
-          <View style={styles.dateField}><Text style={styles.label}>Hasta</Text><TextInput accessibilityLabel="Fecha final del historial" value={historyDraft.to ?? ''} onChangeText={value => setHistoryDraft(current => ({...current, to: value}))} placeholder="AAAA-MM-DD" maxLength={10} style={styles.input} placeholderTextColor="#82979b" /></View>
+        <View style={styles.dateField}><Text style={styles.label}>Desde</Text><TextInput accessibilityLabel="Fecha inicial del historial" value={historyDraft.from ?? ''} onChangeText={value => setHistoryDraft(current => ({...current, from: value}))} placeholder="AAAA-MM-DD" maxLength={10} style={styles.input} placeholderTextColor={theme.colors.placeholder} /></View>
+        <View style={styles.dateField}><Text style={styles.label}>Hasta</Text><TextInput accessibilityLabel="Fecha final del historial" value={historyDraft.to ?? ''} onChangeText={value => setHistoryDraft(current => ({...current, to: value}))} placeholder="AAAA-MM-DD" maxLength={10} style={styles.input} placeholderTextColor={theme.colors.placeholder} /></View>
         </View>
         <Button label="Aplicar filtros" onPress={() => {loadHistory(1, {...historyDraft});}} disabled={historyBusy} />
         <Text style={styles.help}>Las fechas usan el calendario de Colombia. La ficha conserva la existencia actual.</Text>
       </View>
       {!!historyError && <Text accessibilityRole="alert" style={styles.error}>{historyError}</Text>}
-      {historyBusy && <ActivityIndicator color={teal} />}
+      {historyBusy && <ActivityIndicator color={theme.colors.accent} />}
       {!historyBusy && detail.movements.length === 0 && <View style={styles.card}><Text style={styles.help}>No hay movimientos que coincidan con los filtros.</Text></View>}
       {detail.movements.map(move => <MovementCard key={move.id} movement={move} />)}
       {detail.movement_total > detail.movement_page_size && <View style={styles.pager}>
@@ -147,7 +150,7 @@ export function InventoryScreen({client, onBack, onAuthExpired}: {client: Gatewa
     </View> : <>
       <View style={styles.card}>
         <Text style={styles.label}>Buscar por código o nombre</Text>
-        <TextInput accessibilityLabel="Buscar inventario" value={queryInput} onChangeText={setQueryInput} onSubmitEditing={() => {setPage(1); setQuery(queryInput.trim());}} returnKeyType="search" maxLength={120} style={styles.input} placeholder="Código o nombre del bien" placeholderTextColor="#82979b" />
+        <TextInput accessibilityLabel="Buscar inventario" value={queryInput} onChangeText={setQueryInput} onSubmitEditing={() => {setPage(1); setQuery(queryInput.trim());}} returnKeyType="search" maxLength={120} style={styles.input} placeholder="Código o nombre del bien" placeholderTextColor={theme.colors.placeholder} />
         <View style={styles.controls}><Button label="Buscar" onPress={() => {setPage(1); setQuery(queryInput.trim());}} /><Button label="Actualizar" onPress={() => setRefresh(value => value + 1)} secondary disabled={loading} /></View>
         <Text style={styles.label}>Tipo de bien</Text>
         <View style={styles.chips}>
@@ -161,7 +164,7 @@ export function InventoryScreen({client, onBack, onAuthExpired}: {client: Gatewa
         </View>
       </View>
       {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-      {loading && <ActivityIndicator accessibilityLabel="Cargando inventario" color={teal} />}
+      {loading && <ActivityIndicator accessibilityLabel="Cargando inventario" color={theme.colors.accent} />}
       {!loading && !error && items.length === 0 && <View style={styles.card}><Text style={styles.help}>No hay bienes que coincidan con la búsqueda.</Text></View>}
       {items.map(item => <Pressable key={item.id} accessibilityRole="button" onPress={() => {openAsset(item.id);}} style={styles.card}>
         <Text style={styles.cardTitle}>{item.name}</Text>
@@ -177,16 +180,18 @@ export function InventoryScreen({client, onBack, onAuthExpired}: {client: Gatewa
       </View>}
       <Button label="Volver al resumen" onPress={onBack} secondary />
     </>}
-    {detailBusy && <View style={styles.loadingOverlay}><ActivityIndicator color={teal} /><Text style={styles.help}>Cargando ficha…</Text></View>}
+    {detailBusy && <View style={styles.loadingOverlay}><ActivityIndicator color={theme.colors.accent} /><Text style={styles.help}>Cargando ficha…</Text></View>}
   </>;
 }
 
 function Fact({label, value}: {label: string; value?: string | number | null}) {
+  const styles = useSrdStyles(createStyles);
   if (value === null || value === undefined || value === '') return null;
   return <View style={styles.fact}><Text style={styles.label}>{label}</Text><Text style={styles.factValue}>{value}</Text></View>;
 }
 
 function MovementCard({movement}: {movement: AssetMovement}) {
+  const styles = useSrdStyles(createStyles);
   return <View style={styles.card}>
     <Text style={styles.cardTitle}>{movementLabels[movement.type]} · #{movement.sequence}</Text>
     <Fact label="Registrado" value={movement.created_at} />
@@ -197,23 +202,23 @@ function MovementCard({movement}: {movement: AssetMovement}) {
   </View>;
 }
 
-const styles = StyleSheet.create({
-  eyebrow: {color: teal, fontWeight: '800', letterSpacing: 2, fontSize: 11},
-  title: {color: ink, fontSize: 30, fontWeight: '800', lineHeight: 37},
-  lead: {color: '#577078', fontSize: 15, lineHeight: 22, marginBottom: 8},
-  sectionTitle: {color: ink, fontSize: 20, fontWeight: '800', marginTop: 4},
-  card: {backgroundColor: '#fff', padding: 17, borderRadius: 16, gap: 10, elevation: 1},
-  cardTitle: {color: ink, fontSize: 17, fontWeight: '800'},
-  label: {color: ink, fontWeight: '700'}, factValue: {color: ink, fontSize: 15},
-  fact: {borderBottomWidth: 1, borderBottomColor: '#e8eeee', paddingBottom: 8, gap: 3},
-  help: {color: '#577078', lineHeight: 20}, link: {color: teal, fontWeight: '800'},
-  input: {borderWidth: 1, borderColor: '#cbd9d9', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: ink, backgroundColor: '#fff'},
+const createStyles = (theme: SrdTheme) => StyleSheet.create({
+  eyebrow: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '800', letterSpacing: 2, fontSize: 11},
+  title: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 30, fontWeight: '800', lineHeight: 37},
+  lead: {fontFamily: theme.typography.family, color: theme.colors.muted, fontSize: 15, lineHeight: 22, marginBottom: 8},
+  sectionTitle: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 20, fontWeight: '800', marginTop: 4},
+  card: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, padding: 17, borderRadius: theme.radius.card, gap: 10, elevation: theme.mode === 'dark' ? 0 : 1},
+  cardTitle: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 17, fontWeight: '800'},
+  label: {fontFamily: theme.typography.family, color: theme.colors.ink, fontWeight: '700'}, factValue: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 15},
+  fact: {borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingBottom: 8, gap: 3},
+  help: {fontFamily: theme.typography.family, color: theme.colors.muted, lineHeight: 20}, link: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '800'},
+  input: {borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, paddingHorizontal: 12, paddingVertical: 11, minHeight: 46, fontFamily: theme.typography.family, color: theme.colors.ink, backgroundColor: theme.colors.surface},
   controls: {flexDirection: 'row', alignItems: 'flex-end', gap: 8}, dateField: {flex: 1, gap: 6},
   chips: {flexDirection: 'row', flexWrap: 'wrap', gap: 7},
-  chip: {borderWidth: 1, borderColor: '#cbd9d9', borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8},
-  chipSelected: {backgroundColor: teal, borderColor: teal}, chipText: {color: ink, fontSize: 12}, chipTextSelected: {color: '#fff', fontWeight: '700'},
-  button: {backgroundColor: teal, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, alignItems: 'center', justifyContent: 'center', minHeight: 44, flex: 1},
-  secondary: {backgroundColor: '#fff', borderWidth: 1, borderColor: teal}, buttonText: {color: '#fff', fontWeight: '700', textAlign: 'center'}, secondaryText: {color: teal}, disabled: {opacity: 0.5},
-  pager: {flexDirection: 'row', alignItems: 'center', gap: 8}, error: {color: '#a42e31', backgroundColor: '#ffebeb', padding: 12, borderRadius: 8},
+  chip: {borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, paddingHorizontal: 10, paddingVertical: 8, minHeight: 44, justifyContent: 'center'},
+  chipSelected: {backgroundColor: theme.colors.accent, borderColor: theme.colors.accent}, chipText: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 12}, chipTextSelected: {fontFamily: theme.typography.family, color: '#fff', fontWeight: '700'},
+  button: {backgroundColor: theme.colors.accent, paddingVertical: 12, paddingHorizontal: 12, borderRadius: theme.radius.control, alignItems: 'center', justifyContent: 'center', minHeight: 44, flex: 1},
+  secondary: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border}, buttonText: {fontFamily: theme.typography.family, color: '#fff', fontWeight: '700', textAlign: 'center'}, secondaryText: {fontFamily: theme.typography.family, color: theme.colors.ink}, disabled: {opacity: 0.55},
+  pager: {flexDirection: 'row', alignItems: 'center', gap: 8}, error: {fontFamily: theme.typography.family, color: theme.colors.error, backgroundColor: theme.colors.errorSoft, borderWidth: 1, borderColor: theme.colors.errorBorder, padding: 12, borderRadius: 8},
   loadingOverlay: {alignItems: 'center', gap: 7, padding: 8},
 });

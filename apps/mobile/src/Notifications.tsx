@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import {useSrdStyles, type SrdTheme} from './theme';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
 import {bogotaDateTime} from './calendar';
 import {type Notice, type NotificationInbox, type NotificationKind} from './notificationModels';
@@ -18,6 +19,7 @@ function dateLabel(value: string): string {
 }
 
 function Button({label, onPress, disabled = false}: {label: string; onPress: () => void; disabled?: boolean}) {
+  const styles = useSrdStyles(createStyles);
   return <Pressable accessibilityRole="button" onPress={onPress} disabled={disabled} style={[styles.button, disabled && styles.disabled]}>
     <Text style={styles.buttonText}>{label}</Text>
   </Pressable>;
@@ -28,6 +30,7 @@ export function NotificationsScreen({inbox, busy, onRead, onDismiss, onOpenEvent
   onRead: (item: Notice) => void; onDismiss: (item: Notice) => void; onOpenEvent: (id: string) => void;
   onPage: (page: number) => void; onRefresh: () => void; onPreferences: () => void; onBack: () => void;
 }) {
+  const styles = useSrdStyles(createStyles);
   const [confirmDismiss, setConfirmDismiss] = useState<string | null>(null);
   return <>
     <Text style={styles.eyebrow}>BANDEJA PERSONAL</Text>
@@ -60,18 +63,18 @@ export function NotificationsScreen({inbox, busy, onRead, onDismiss, onOpenEvent
   </>;
 }
 
-const styles = StyleSheet.create({
-  eyebrow: {color: '#087e79', fontWeight: '800', letterSpacing: 2, fontSize: 11},
-  title: {color: '#153139', fontSize: 32, fontWeight: '800'},
-  lead: {color: '#577078', fontSize: 16, marginBottom: 8},
-  card: {backgroundColor: '#fff', padding: 18, borderRadius: 14, gap: 7, elevation: 1},
-  unread: {borderLeftWidth: 4, borderLeftColor: '#087e79'},
-  kind: {color: '#087e79', fontWeight: '700', fontSize: 12},
-  noticeTitle: {color: '#153139', fontSize: 17, fontWeight: '700'},
-  muted: {color: '#577078', lineHeight: 20},
-  link: {color: '#087e79', fontWeight: '700', paddingVertical: 5},
+const createStyles = (theme: SrdTheme) => StyleSheet.create({
+  eyebrow: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '800', letterSpacing: 2, fontSize: 11},
+  title: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 32, fontWeight: '800'},
+  lead: {fontFamily: theme.typography.family, color: theme.colors.muted, fontSize: 16, marginBottom: 8},
+  card: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, padding: 18, borderRadius: theme.radius.card, gap: 7, elevation: theme.mode === 'dark' ? 0 : 1},
+  unread: {borderLeftWidth: 4, borderLeftColor: theme.colors.accent},
+  kind: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '700', fontSize: 12},
+  noticeTitle: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 17, fontWeight: '700'},
+  muted: {fontFamily: theme.typography.family, color: theme.colors.muted, lineHeight: 20},
+  link: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '700', paddingVertical: 5},
   row: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8},
-  confirm: {backgroundColor: '#f3f7f6', borderRadius: 9, padding: 10, gap: 7},
-  button: {backgroundColor: '#fff', borderWidth: 1, borderColor: '#087e79', borderRadius: 10, minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12},
-  buttonText: {color: '#087e79', fontWeight: '700'}, disabled: {opacity: 0.5},
+  confirm: {backgroundColor: theme.colors.surfaceSoft, borderRadius: theme.radius.control, padding: 10, gap: 7},
+  button: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12},
+  buttonText: {fontFamily: theme.typography.family, color: theme.colors.ink, fontWeight: '700'}, disabled: {opacity: 0.55},
 });
