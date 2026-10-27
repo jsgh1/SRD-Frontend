@@ -23,6 +23,72 @@ export type Dashboard = {
   latest?: Array<{id: string; first_names: string; last_names: string}>;
 };
 
+export type Asset = {
+  id: string;
+  code: string;
+  type: 'real_estate' | 'movable';
+  name: string;
+  category: string | null;
+  unit: string | null;
+  description: string | null;
+  location: string;
+  condition: string;
+  responsible_name: string | null;
+  quantity: number;
+  status: 'active' | 'retired';
+  version: number;
+  retired_at: string | null;
+};
+export type AssetMovement = {
+  id: string;
+  sequence: number;
+  type: 'opening' | 'in' | 'out' | 'adjust' | 'retire';
+  delta: number;
+  quantity_before: number;
+  quantity_after: number;
+  reason: string;
+  performer_name: string;
+  created_at: string;
+};
+export type AssetDetail = {
+  asset: Asset;
+  movements: AssetMovement[];
+  movement_page: number;
+  movement_page_size: number;
+  movement_total: number;
+};
+export type AssetFilters = {type?: 'real_estate' | 'movable'; status?: 'active' | 'retired'; q?: string};
+export type AssetPage = {items: Asset[]; total: number};
+export type TreasuryReceipt = {
+  id: string;
+  number: number;
+  receipt: string;
+  kind: 'opening' | 'income' | 'expense' | 'reversal';
+  sign: number;
+  amount: string;
+  balance_after: string;
+  effective_date: string;
+  concept: string;
+  support_note: string | null;
+  actor_name: string;
+  actor_id: string;
+  reverses_id: string | null;
+  reversed_by_id?: string | null;
+  created_at: string;
+};
+export type TreasurySummary = {
+  opened: boolean;
+  balance: string;
+  opening: string;
+  credits: string;
+  debits: string;
+  items: TreasuryReceipt[];
+  page: number;
+  page_size: number;
+  total: number;
+};
+export type TreasuryFilters = {from?: string; to?: string; q?: string};
+
 export type Person = {
   id: string;
   first_names: string;
@@ -192,6 +258,55 @@ export class GatewayClient {
   }
   dashboard() {
     return this.request<Dashboard>('dashboard');
+  }
+  assets(page = 1, filters: AssetFilters = {}) {
+    if (!Number.isInteger(page) || page < 1) throw new Error('La página de inventario no es válida.');
+    const query = (filters.q ?? '').trim();
+    if (query.length > 120) throw new Error('La búsqueda no puede superar 120 caracteres.');
+    if (filters.type && !['real_estate', 'movable'].includes(filters.type)) throw new Error('El tipo de bien no es válido.');
+    if (filters.status && !['active', 'retired'].includes(filters.status)) throw new Error('El estado del bien no es válido.');
+    const params = new URLSearchParams({page: String(page)});
+    if (filters.type) params.set('type', filters.type);
+    if (filters.status) params.set('status', filters.status);
+    if (query) params.set('q', query);
+    return this.request<AssetPage>(`assets?${params}`);
+  }
+  asset(id: string, movementPage = 1, filters: {type?: AssetMovement['type']; q?: string; from?: string; to?: string} = {}) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      throw new Error('El identificador del bien no es válido.');
+    }
+    if (!Number.isInteger(movementPage) || movementPage < 1) throw new Error('La página del historial no es válida.');
+    const query = (filters.q ?? '').trim();
+    if (query.length > 120) throw new Error('La búsqueda no puede superar 120 caracteres.');
+    if (filters.type && !['opening', 'in', 'out', 'adjust', 'retire'].includes(filters.type)) throw new Error('El tipo de movimiento no es válido.');
+    if (filters.from && !/^\d{4}-\d{2}-\d{2}$/.test(filters.from)) throw new Error('La fecha inicial no es válida.');
+    if (filters.to && !/^\d{4}-\d{2}-\d{2}$/.test(filters.to)) throw new Error('La fecha final no es válida.');
+    if (filters.from && filters.to && filters.from > filters.to) throw new Error('La fecha final debe ser igual o posterior a la inicial.');
+    const params = new URLSearchParams({movement_page: String(movementPage)});
+    if (filters.type) params.set('movement_type', filters.type);
+    if (query) params.set('movement_q', query);
+    if (filters.from) params.set('movement_from', filters.from);
+    if (filters.to) params.set('movement_to', filters.to);
+    return this.request<AssetDetail>(`assets/${id}?${params}`);
+  }
+  treasury(page = 1, filters: TreasuryFilters = {}) {
+    if (!Number.isInteger(page) || page < 1) throw new Error('La página de tesorería no es válida.');
+    const query = (filters.q ?? '').trim();
+    if (query.length > 120) throw new Error('La búsqueda no puede superar 120 caracteres.');
+    if (filters.from && !/^\d{4}-\d{2}-\d{2}$/.test(filters.from)) throw new Error('La fecha inicial no es válida.');
+    if (filters.to && !/^\d{4}-\d{2}-\d{2}$/.test(filters.to)) throw new Error('La fecha final no es válida.');
+    if (filters.from && filters.to && filters.from > filters.to) throw new Error('La fecha final debe ser igual o posterior a la inicial.');
+    const params = new URLSearchParams({page: String(page)});
+    if (filters.from) params.set('from', filters.from);
+    if (filters.to) params.set('to', filters.to);
+    if (query) params.set('q', query);
+    return this.request<TreasurySummary>(`treasury?${params}`);
+  }
+  treasuryMovement(id: string) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      throw new Error('El identificador del movimiento no es válido.');
+    }
+    return this.request<TreasuryReceipt>(`treasury/movements/${id}`);
   }
   agenda(anchor: string) {
     const {from, to} = agendaWindow(anchor);

@@ -9,6 +9,8 @@ import {NotificationPreferencesScreen} from './src/NotificationPreferences';
 import {type Notice, type NotificationInbox} from './src/notificationModels';
 import {ProfileScreen} from './src/Profile';
 import {SwitchOrganizationScreen} from './src/SwitchOrganization';
+import {InventoryScreen} from './src/Inventory';
+import {TreasuryScreen} from './src/Treasury';
 import {connectionStore} from './src/connection';
 
 const ink = '#153139';
@@ -35,7 +37,7 @@ function App() {
   const [resendAfter, setResendAfter] = useState(0);
   const [principal, setPrincipal] = useState<Principal | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [screen, setScreen] = useState<'home' | 'list' | 'lookup' | 'create' | 'created' | 'detail' | 'agenda' | 'event' | 'invitations' | 'notifications' | 'notificationPreferences' | 'profile' | 'switch'>('home');
+  const [screen, setScreen] = useState<'home' | 'list' | 'lookup' | 'create' | 'created' | 'detail' | 'agenda' | 'event' | 'invitations' | 'notifications' | 'notificationPreferences' | 'profile' | 'switch' | 'inventory' | 'treasury'>('home');
   const [switchCode, setSwitchCode] = useState('');
   const [switchTarget, setSwitchTarget] = useState<Organization | null>(null);
   const [switchAccepted, setSwitchAccepted] = useState(false);
@@ -653,6 +655,10 @@ function App() {
           <Action label="Agenda" onPress={() => loadAgenda(bogotaToday())} disabled={busy} secondary />
           <Action label="Mis invitaciones" onPress={() => loadInvitations(1)} disabled={busy} secondary />
           <Action label="Notificaciones" onPress={() => loadNotifications(1)} disabled={busy} secondary />
+          {['superadmin', 'admin', 'treasurer'].includes(principal.role) && <>
+            <Action label="Inventario" onPress={() => setScreen('inventory')} disabled={busy} secondary />
+            <Action label="Tesorería" onPress={() => setScreen('treasury')} disabled={busy} secondary />
+          </>}
           <Action label="Mi perfil" onPress={openProfile} disabled={busy} secondary />
           <Action label="Cambiar de junta" onPress={openSwitch} disabled={busy} secondary />
           <Action label="Cerrar sesión" onPress={logout} disabled={busy} secondary />
@@ -666,6 +672,10 @@ function App() {
         {!!principal && screen === 'profile' && <ProfileScreen principal={principal} name={profileName}
           presence={profilePresence} busy={busy} onName={setProfileName} onPresence={setProfilePresence}
           onSave={saveProfile} onBack={() => setScreen('home')} />}
+        {!!principal && !!client && screen === 'inventory' && <InventoryScreen client={client}
+          onBack={() => setScreen('home')} onAuthExpired={expireSession} />}
+        {!!principal && !!client && screen === 'treasury' && <TreasuryScreen client={client}
+          onBack={() => setScreen('home')} onAuthExpired={expireSession} />}
         {!!principal && screen === 'agenda' && <AgendaScreen
           {...agendaWindow(agendaAnchor)} events={agendaEvents} busy={busy}
           onMove={weeks => loadAgenda(addCalendarDays(agendaAnchor, weeks * 7))}

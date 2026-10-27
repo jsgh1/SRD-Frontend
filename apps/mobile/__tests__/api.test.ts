@@ -123,6 +123,38 @@ describe('cliente del gateway', () => {
       expect.objectContaining({credentials: 'include'}),
     );
   });
+  test('consulta inventario y el historial paginado usando los contratos del gateway', async () => {
+    const id = '123e4567-e89b-42d3-a456-426614174000';
+    globalThis.fetch = jest.fn()
+      .mockResolvedValueOnce(response({items: [], total: 0}))
+      .mockResolvedValueOnce(response({asset: {}, movements: [], movement_page: 2, movement_page_size: 25, movement_total: 30}));
+    const client = new GatewayClient('https://srd.ejemplo.com');
+    await client.assets(2, {type: 'movable', status: 'active', q: 'Mesa & silla'});
+    await client.asset(id, 2, {type: 'in', q: 'compra inicial', from: '2026-10-01', to: '2026-10-27'});
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(1,
+      'https://srd.ejemplo.com/api/v1/assets?page=2&type=movable&status=active&q=Mesa+%26+silla', expect.any(Object));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2,
+      `https://srd.ejemplo.com/api/v1/assets/${id}?movement_page=2&movement_type=in&movement_q=compra+inicial&movement_from=2026-10-01&movement_to=2026-10-27`, expect.any(Object));
+    expect(() => client.asset('../auth/me')).toThrow('identificador');
+    expect(() => client.asset(id, 1, {from: '2026-11-01', to: '2026-10-01'})).toThrow('posterior');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+  test('consulta saldos, historial y detalle de tesorería sin exponer rutas arbitrarias', async () => {
+    const id = '123e4567-e89b-42d3-a456-426614174000';
+    globalThis.fetch = jest.fn()
+      .mockResolvedValueOnce(response({opened: true, balance: '10.00', opening: '5.00', credits: '8.00', debits: '3.00', items: [], page: 2, page_size: 25, total: 30}))
+      .mockResolvedValueOnce(response({id, receipt: 'TES-1'}));
+    const client = new GatewayClient('https://srd.ejemplo.com');
+    await client.treasury(2, {from: '2026-10-01', to: '2026-10-27', q: 'TES-12'});
+    await client.treasuryMovement(id);
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(1,
+      'https://srd.ejemplo.com/api/v1/treasury?page=2&from=2026-10-01&to=2026-10-27&q=TES-12', expect.any(Object));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2,
+      `https://srd.ejemplo.com/api/v1/treasury/movements/${id}`, expect.any(Object));
+    expect(() => client.treasuryMovement('../auth/me')).toThrow('identificador');
+    expect(() => client.treasury(1, {from: '2026-11-01', to: '2026-10-01'})).toThrow('posterior');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
   test('solo consulta un detalle mediante identificador UUID', async () => {
     const id = '123e4567-e89b-42d3-a456-426614174000';
     globalThis.fetch = jest.fn().mockResolvedValue(response({id, first_names: 'Ana'}));
