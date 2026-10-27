@@ -27,6 +27,7 @@ export function InventoryScreen({client, onBack, onAuthExpired}: {client: Gatewa
   const styles = useSrdStyles(createStyles);
   const [items, setItems] = useState<Asset[]>([]);
   const [total, setTotal] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(1);
   const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
@@ -49,7 +50,7 @@ export function InventoryScreen({client, onBack, onAuthExpired}: {client: Gatewa
     let active = true;
     setLoading(true); setError('');
     client.assets(page, {type: type || undefined, status, q: query}).then(result => {
-      if (active) {setItems(result.items); setTotal(result.total);}
+      if (active) {setItems(result.items); setTotal(result.total); setPageSize(result.page_size);}
     }).catch(cause => {
       if (!active) return;
       if (cause instanceof ApiError && cause.status === 401) onAuthExpired();
@@ -176,7 +177,7 @@ export function InventoryScreen({client, onBack, onAuthExpired}: {client: Gatewa
       {total > 0 && <View style={styles.pager}>
         <Button label="Anterior" secondary onPress={() => setPage(value => value - 1)} disabled={loading || page <= 1} />
         <Text style={styles.help}>Página {page} · {total} bienes</Text>
-        <Button label="Siguiente" secondary onPress={() => setPage(value => value + 1)} disabled={loading || page * 10 >= total} />
+        <Button label="Siguiente" secondary onPress={() => setPage(value => value + 1)} disabled={loading || page * pageSize >= total} />
       </View>}
       <Button label="Volver al resumen" onPress={onBack} secondary />
     </>}

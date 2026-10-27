@@ -1,6 +1,8 @@
 import {agendaWindow, type CalendarEvent, type CalendarInvitation, type InvitationPage} from './calendar';
 import {type NotificationInbox} from './notificationModels';
 
+const GATEWAY_REQUEST_TIMEOUT_MS = 15_000;
+
 export type Organization = {
   code: string;
   name: string;
@@ -58,7 +60,7 @@ export type AssetDetail = {
   movement_total: number;
 };
 export type AssetFilters = {type?: 'real_estate' | 'movable'; status?: 'active' | 'retired'; q?: string};
-export type AssetPage = {items: Asset[]; total: number};
+export type AssetPage = {items: Asset[]; page: number; page_size: number; total: number};
 export type TreasuryReceipt = {
   id: string;
   number: number;
@@ -172,11 +174,14 @@ export class GatewayClient {
   }
 
   private async fetchJson<T>(path: string, method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE', body?: unknown): Promise<T> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), GATEWAY_REQUEST_TIMEOUT_MS);
     let response: Response;
     try {
       response = await fetch(`${this.origin}/api/v1/${path}`, {
         method,
         credentials: 'include',
+        signal: controller.signal,
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
@@ -185,6 +190,7 @@ export class GatewayClient {
         ...(method !== 'GET' ? {body: JSON.stringify(body ?? {})} : {}),
       });
     } catch {
+      clearTimeout(timeout);
       throw new NetworkError(path, 'No hay conexión con el servidor. Comprueba su dirección y tu red.');
     }
     if (response.status === 419 || response.status === 401) this.csrf = '';
@@ -192,7 +198,12 @@ export class GatewayClient {
     try {
       json = await response.json();
     } catch {
+      if (controller.signal.aborted) {
+        throw new NetworkError(path, 'No hay conexión con el servidor. Comprueba su dirección y tu red.');
+      }
       throw new ApiError(response.status, 'El servidor devolvió una respuesta no válida.');
+    } finally {
+      clearTimeout(timeout);
     }
     if (!response.ok) {
       throw new ApiError(response.status, json.error?.message || 'No se pudo completar la solicitud.');
