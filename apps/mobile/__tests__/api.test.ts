@@ -1,4 +1,5 @@
-import {GatewayClient, normalizeOrigin, UnconfirmedWriteError} from '../src/api';
+import {GatewayClient, NetworkError, UnconfirmedWriteError} from '../src/api';
+import {SRD_API_ORIGIN} from '../src/config';
 
 const response = (data: unknown, status = 200) => ({
   ok: status >= 200 && status < 300,
@@ -6,18 +7,20 @@ const response = (data: unknown, status = 200) => ({
   json: async () => ({data}),
 }) as Response;
 
-describe('dirección del gateway', () => {
-  test('acepta HTTPS y elimina la barra final', () => {
-    expect(normalizeOrigin(' https://srd.ejemplo.com/ ', false)).toBe('https://srd.ejemplo.com');
+describe('servidor móvil', () => {
+  test('usa el gateway HTTPS del VPS', () => {
+    const gateway = new URL(SRD_API_ORIGIN);
+    expect(gateway.protocol).toBe('https:');
+    expect(gateway.hostname).toBe('srd-jsgh1.duckdns.org');
+    expect(gateway.pathname).toBe('/');
   });
-  test('limita HTTP al emulador de desarrollo', () => {
-    expect(normalizeOrigin('http://10.0.2.2:8080', true)).toBe('http://10.0.2.2:8080');
-    expect(() => normalizeOrigin('http://10.0.2.2:8080', false)).toThrow('HTTPS');
-    expect(() => normalizeOrigin('http://example.com', true)).toThrow('HTTPS');
-  });
-  test('rechaza rutas y credenciales', () => {
-    expect(() => normalizeOrigin('https://example.com/path', false)).toThrow('solo el origen');
-    expect(() => normalizeOrigin('https://user:pass@example.com', false)).toThrow('solo el origen');
+  test('fija el origen sin usuario, puerto, ruta ni parámetros configurables', () => {
+    const gateway = new URL(SRD_API_ORIGIN);
+    expect(gateway.username).toBe('');
+    expect(gateway.password).toBe('');
+    expect(gateway.port).toBe('');
+    expect(gateway.search).toBe('');
+    expect(gateway.hash).toBe('');
   });
 });
 
@@ -122,6 +125,55 @@ describe('cliente del gateway', () => {
       'https://srd.ejemplo.com/api/v1/persons?page=2&page_size=10&q=Ana%20%26%20Jos%C3%A9',
       expect.objectContaining({credentials: 'include'}),
     );
+  });
+  test('consulta inventario y el historial paginado usando los contratos del gateway', async () => {
+    const id = '123e4567-e89b-42d3-a456-426614174000';
+    globalThis.fetch = jest.fn()
+      .mockResolvedValueOnce(response({items: [], page: 2, page_size: 25, total: 0}))
+      .mockResolvedValueOnce(response({asset: {}, movements: [], movement_page: 2, movement_page_size: 25, movement_total: 30}));
+    const client = new GatewayClient('https://srd.ejemplo.com');
+    const assets = await client.assets(2, {type: 'movable', status: 'active', q: 'Mesa & silla'});
+    expect(assets.page_size).toBe(25);
+    await client.asset(id, 2, {type: 'in', q: 'compra inicial', from: '2026-10-01', to: '2026-10-27'});
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(1,
+      'https://srd.ejemplo.com/api/v1/assets?page=2&type=movable&status=active&q=Mesa+%26+silla', expect.any(Object));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2,
+      `https://srd.ejemplo.com/api/v1/assets/${id}?movement_page=2&movement_type=in&movement_q=compra+inicial&movement_from=2026-10-01&movement_to=2026-10-27`, expect.any(Object));
+    expect(() => client.asset('../auth/me')).toThrow('identificador');
+    expect(() => client.asset(id, 1, {from: '2026-11-01', to: '2026-10-01'})).toThrow('posterior');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+  test('aborta solicitudes del gateway que no responden y las informa como error de red', async () => {
+    jest.useFakeTimers();
+    try {
+      globalThis.fetch = jest.fn((_url: string, init: RequestInit) => new Promise((_, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      })) as unknown as typeof fetch;
+      const pending = new GatewayClient('https://srd.ejemplo.com').assets(1);
+      const result = pending.then(() => null, cause => cause);
+
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(await result).toBeInstanceOf(NetworkError);
+      expect(globalThis.fetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({signal: expect.any(Object)}));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+  test('consulta saldos, historial y detalle de tesorería sin exponer rutas arbitrarias', async () => {
+    const id = '123e4567-e89b-42d3-a456-426614174000';
+    globalThis.fetch = jest.fn()
+      .mockResolvedValueOnce(response({opened: true, balance: '10.00', opening: '5.00', credits: '8.00', debits: '3.00', items: [], page: 2, page_size: 25, total: 30}))
+      .mockResolvedValueOnce(response({id, receipt: 'TES-1'}));
+    const client = new GatewayClient('https://srd.ejemplo.com');
+    await client.treasury(2, {from: '2026-10-01', to: '2026-10-27', q: 'TES-12'});
+    await client.treasuryMovement(id);
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(1,
+      'https://srd.ejemplo.com/api/v1/treasury?page=2&from=2026-10-01&to=2026-10-27&q=TES-12', expect.any(Object));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2,
+      `https://srd.ejemplo.com/api/v1/treasury/movements/${id}`, expect.any(Object));
+    expect(() => client.treasuryMovement('../auth/me')).toThrow('identificador');
+    expect(() => client.treasury(1, {from: '2026-11-01', to: '2026-10-01'})).toThrow('posterior');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
   test('solo consulta un detalle mediante identificador UUID', async () => {
     const id = '123e4567-e89b-42d3-a456-426614174000';

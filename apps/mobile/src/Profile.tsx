@@ -1,4 +1,5 @@
 import React from 'react';
+import {useSrdStyles, type SrdTheme} from './theme';
 import {Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import {type Principal} from './api';
 
@@ -9,11 +10,13 @@ const presenceOptions: Array<{value: Principal['user']['presence']; label: strin
   {value: 'invisible', label: 'Invisible', help: 'Apareces desconectado para otros integrantes.'},
 ];
 
-export function ProfileScreen({principal, name, presence, busy, onName, onPresence, onSave, onBack}: {
-  principal: Principal; name: string; presence: Principal['user']['presence']; busy: boolean;
+export function ProfileScreen({principal, name, presence, themeMode, busy, onName, onPresence, onTheme, onSave, onBack}: {
+  principal: Principal; name: string; presence: Principal['user']['presence']; themeMode: Principal['user']['theme']; busy: boolean;
   onName: (name: string) => void; onPresence: (value: Principal['user']['presence']) => void;
+  onTheme: (theme: Principal['user']['theme']) => void;
   onSave: () => void; onBack: () => void;
 }) {
+  const styles = useSrdStyles(createStyles);
   return <>
     <Text style={styles.eyebrow}>CUENTA PERSONAL</Text>
     <Text style={styles.title}>Mi perfil</Text>
@@ -25,6 +28,16 @@ export function ProfileScreen({principal, name, presence, busy, onName, onPresen
       <Text style={styles.label}>Correo de acceso</Text>
       <Text style={styles.value}>{principal.user.email}</Text>
       <Text style={styles.help}>El cambio de correo se gestiona desde la web o Windows.</Text>
+    </View>
+    <View style={styles.card}>
+      <Text style={styles.label}>Apariencia</Text>
+      {([{value: 'light', label: 'Claro'}, {value: 'dark', label: 'Oscuro'}] as const).map(option => <Pressable key={option.value}
+        accessibilityRole="radio" accessibilityState={{selected: themeMode === option.value, disabled: busy}}
+        onPress={() => onTheme(option.value)} disabled={busy}
+        style={[styles.choice, themeMode === option.value && styles.choiceSelected]}>
+        <Text style={styles.choiceLabel}>{option.label}</Text>
+      </Pressable>)}
+      <Text style={styles.help}>La apariencia se comparte con tu cuenta de SRD en la web.</Text>
     </View>
     <View style={styles.card}>
       <Text style={styles.label}>Preferencia de presencia</Text>
@@ -46,21 +59,21 @@ export function ProfileScreen({principal, name, presence, busy, onName, onPresen
   </>;
 }
 
-const styles = StyleSheet.create({
-  eyebrow: {color: '#087e79', fontWeight: '800', letterSpacing: 2, fontSize: 11},
-  title: {color: '#153139', fontSize: 32, fontWeight: '800'},
-  lead: {color: '#577078', fontSize: 16, lineHeight: 23, marginBottom: 10},
-  card: {backgroundColor: '#fff', padding: 20, borderRadius: 20, gap: 12, elevation: 2},
-  label: {color: '#153139', fontWeight: '700'},
-  input: {borderWidth: 1, borderColor: '#cbd9d9', borderRadius: 11, paddingHorizontal: 14, paddingVertical: 11, color: '#153139'},
-  value: {color: '#153139', fontSize: 16},
-  help: {color: '#577078', lineHeight: 20},
-  choice: {borderWidth: 1, borderColor: '#cbd9d9', borderRadius: 11, padding: 12, gap: 3},
-  choiceSelected: {borderColor: '#087e79', backgroundColor: '#eaf6f4'},
-  choiceLabel: {color: '#153139', fontWeight: '700'},
-  button: {backgroundColor: '#087e79', paddingVertical: 15, borderRadius: 11, alignItems: 'center', marginTop: 5},
-  buttonText: {color: '#fff', fontWeight: '800', fontSize: 16},
-  secondary: {backgroundColor: '#fff', borderWidth: 1, borderColor: '#087e79'},
-  secondaryText: {color: '#087e79'},
-  disabled: {opacity: 0.5},
+const createStyles = (theme: SrdTheme) => StyleSheet.create({
+  eyebrow: {fontFamily: theme.typography.family, color: theme.colors.accent, fontWeight: '800', letterSpacing: 2, fontSize: 11},
+  title: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 32, fontWeight: '800'},
+  lead: {fontFamily: theme.typography.family, color: theme.colors.muted, fontSize: 16, lineHeight: 23, marginBottom: 10},
+  card: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, padding: 20, borderRadius: theme.radius.panel, gap: 12, elevation: theme.mode === 'dark' ? 0 : 1},
+  label: {fontFamily: theme.typography.family, color: theme.colors.ink, fontWeight: '700'},
+  input: {borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, paddingHorizontal: 14, paddingVertical: 11, minHeight: 46, fontFamily: theme.typography.family, color: theme.colors.ink, backgroundColor: theme.colors.surface},
+  value: {fontFamily: theme.typography.family, color: theme.colors.ink, fontSize: 16},
+  help: {fontFamily: theme.typography.family, color: theme.colors.muted, lineHeight: 20},
+  choice: {borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, padding: 12, gap: 3, minHeight: 44, justifyContent: 'center'},
+  choiceSelected: {borderColor: theme.colors.accent, backgroundColor: theme.colors.accentSoft},
+  choiceLabel: {fontFamily: theme.typography.family, color: theme.colors.ink, fontWeight: '700'},
+  button: {backgroundColor: theme.colors.accent, paddingVertical: 15, borderRadius: theme.radius.control, alignItems: 'center', marginTop: 5},
+  buttonText: {fontFamily: theme.typography.family, color: '#fff', fontWeight: '800', fontSize: 16},
+  secondary: {backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border},
+  secondaryText: {fontFamily: theme.typography.family, color: theme.colors.ink},
+  disabled: {opacity: 0.55},
 });

@@ -1875,17 +1875,10 @@ dialog header h2 {
 .download-checksum > div { min-width: 0; display: grid; gap: 5px; }
 .download-checksum strong { font-size: 12px; }
 .download-checksum code { font-size: 12px; overflow-wrap: anywhere; user-select: all; }
+.download-install-note { margin: 13px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .download-unavailable { margin: 0; padding: 18px; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); }
-.download-mobile { display: flex; align-items: center; gap: 17px; }
-.download-mobile > svg { color: var(--muted); flex: none; }
-.download-mobile > div { flex: 1; min-width: 0; }
-.download-mobile h2 { margin: 0 0 3px; }
-.download-mobile p { margin: 0; color: var(--muted); line-height: 1.5; }
-.download-mobile > span { flex: none; color: var(--muted); font-size: 12px; font-weight: 650; }
 @media (max-width: 720px) {
   .download-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .download-mobile { align-items: flex-start; flex-wrap: wrap; }
-  .download-mobile > span { margin-left: 41px; }
 }
 @media (max-width: 480px) {
   .download-release-main { gap: 12px; }
