@@ -62,6 +62,7 @@ import { Inventory } from './Inventory';
 import { Folders } from './Folders';
 import { FolderAccessSettings } from './FolderAccessSettings';
 import { Notifications } from './Notifications';
+import { Downloads } from './Downloads';
 import { Memberships, InvitationAcceptance } from "./Memberships";
 import { Empty, ErrorBox, Loading, Modal } from "./ui";
 import {
@@ -539,23 +540,7 @@ export function App() {
           {page === 'contacts' && <Contacts key={`${principal.organization.id}:contacts`} organizationId={principal.organization.id} onChat={id => { setChatTarget(id); navigate('chat'); }} />}
           {page === 'chat' && <Chat key={`${principal.organization.id}:chat`} userId={chatTarget} conversationId={chatConversationTarget} onStarted={chatStarted} onOpened={chatOpened} selfId={principal.user_id} organizationId={principal.organization.id} onContacts={() => navigate('contacts')} onVoiceSelection={setVoiceConversation} />}
           {page === 'search' && <GlobalSearch key={`${principal.organization.id}:search`} principal={principal} folderRead={folderRead || canAdmin(principal.role)} onOpenFolder={id => { navigate('folders'); setFolderTarget(id); }} />}
-        {page === "downloads" && (
-          <>
-            <div className="page-heading">
-              <div>
-                <h1>{t('Descargas')}</h1>
-                <p className="muted">
-                  {t('Aplicaciones de SRD para Windows y Android.')}
-                </p>
-              </div>
-            </div>
-            <section className="panel">
-              <Empty title={t('Todavía no hay instaladores disponibles')}>
-                {t('Los paquetes aparecerán aquí después de construirlos y verificar su firma y checksum.')}
-              </Empty>
-            </section>
-          </>
-        )}
+        {page === "downloads" && <Downloads />}
         <footer>
           ©{" "}
           {new Date().toLocaleDateString(formatLocale(), {

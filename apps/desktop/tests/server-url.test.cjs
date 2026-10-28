@@ -2,10 +2,11 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { resolveServerUrl } = require('../server-url.cjs');
 
-test('uses the local server by default and accepts a configured HTTPS origin', () => {
-  assert.equal(resolveServerUrl([], {}), 'http://127.0.0.1:8080');
+test('uses the deployed HTTPS server by default and accepts an explicit safe override', () => {
+  assert.equal(resolveServerUrl([], {}), 'https://srd-jsgh1.duckdns.org');
   assert.equal(resolveServerUrl([], { SRD_DESKTOP_SERVER_URL: 'https://srd.example.test:8443' }), 'https://srd.example.test:8443');
   assert.equal(resolveServerUrl(['--server-url=https://intranet.example.test'], {}), 'https://intranet.example.test');
+  assert.equal(resolveServerUrl(['--server-url=http://127.0.0.1:8080'], {}), 'http://127.0.0.1:8080');
 });
 
 test('rejects nonlocal HTTP, embedded credentials and ambiguous URLs', () => {

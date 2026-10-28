@@ -1,11 +1,12 @@
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+const DEFAULT_SERVER_URL = 'https://srd-jsgh1.duckdns.org';
 
 function resolveServerUrl(argv = process.argv, env = process.env) {
   const argumentsWithUrl = argv.filter(value => value.startsWith('--server-url='));
   if (argumentsWithUrl.length > 1) throw new Error('Indica una sola URL de servidor.');
   const raw = argumentsWithUrl[0]?.slice('--server-url='.length)
     ?? env.SRD_DESKTOP_SERVER_URL
-    ?? 'http://127.0.0.1:8080';
+    ?? DEFAULT_SERVER_URL;
   let url;
   try { url = new URL(raw); }
   catch { throw new Error('La URL del servidor no es válida.'); }
@@ -17,4 +18,4 @@ function resolveServerUrl(argv = process.argv, env = process.env) {
   return url.origin;
 }
 
-module.exports = { resolveServerUrl };
+module.exports = { resolveServerUrl, DEFAULT_SERVER_URL };
