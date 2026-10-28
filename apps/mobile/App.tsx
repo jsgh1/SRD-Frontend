@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {ActivityIndicator, AppState, BackHandler, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View} from 'react-native';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
-import {ApiError, Dashboard, DocumentType, GatewayClient, normalizeOrigin, NotificationPreferences, Organization, PendingPersonInput, Person, PersonPage, Principal, UnconfirmedWriteError} from './src/api';
+import {ApiError, Dashboard, DocumentType, GatewayClient, NotificationPreferences, Organization, PendingPersonInput, Person, PersonPage, Principal, UnconfirmedWriteError} from './src/api';
 import {AgendaScreen, EventScreen, InvitationScreen} from './src/Agenda';
 import {addCalendarDays, agendaWindow, bogotaToday, type CalendarEvent, type CalendarInvitation, type InvitationPage} from './src/calendar';
 import {NotificationsScreen} from './src/Notifications';
@@ -12,6 +12,7 @@ import {SwitchOrganizationScreen} from './src/SwitchOrganization';
 import {InventoryScreen} from './src/Inventory';
 import {TreasuryScreen} from './src/Treasury';
 import {connectionStore} from './src/connection';
+import {SRD_API_ORIGIN} from './src/config';
 import {SrdThemeContext, srdThemes, useSrdStyles, useSrdTheme, type SrdTheme} from './src/theme';
 
 const documentTypes: Array<{code: DocumentType; label: string}> = [
@@ -21,7 +22,6 @@ const documentTypes: Array<{code: DocumentType; label: string}> = [
 ];
 
 function App() {
-  const [server, setServer] = useState(__DEV__ ? 'http://10.0.2.2:8080' : '');
   const [code, setCode] = useState('');
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [client, setClient] = useState<GatewayClient | null>(null);
@@ -99,12 +99,11 @@ function App() {
       setRestoreError('');
       try {
         const saved = await connectionStore.load();
-        if (!saved.origin || !saved.code) return;
-        const origin = normalizeOrigin(saved.origin, __DEV__);
-        const gateway = new GatewayClient(origin);
+        if (!saved.code) return;
+        const gateway = new GatewayClient(SRD_API_ORIGIN);
         const found = await gateway.organization(saved.code);
         if (cancelled) return;
-        setServer(origin); setCode(found.code); setOrganization(found); setClient(gateway);
+        setCode(found.code); setOrganization(found); setClient(gateway);
         try {
           const current = await gateway.me();
           if (cancelled) return;
@@ -260,10 +259,10 @@ function App() {
   function findOrganization() {
     run(async () => {
       if (!code.trim()) throw new Error('Ingresa el código de tu junta.');
-      const gateway = new GatewayClient(normalizeOrigin(server, __DEV__));
+      const gateway = new GatewayClient(SRD_API_ORIGIN);
       const found = await gateway.organization(code);
       setOrganization(found); setClient(gateway);
-      try {await connectionStore.save(normalizeOrigin(server, __DEV__), found.code);}
+      try {await connectionStore.save(found.code);}
       catch {setNotice('No se pudo recordar la junta en este dispositivo; tendrás que seleccionarla al reabrir.');}
     });
   }
@@ -355,7 +354,7 @@ function App() {
     setSwitchCode(current.organization.code); setSwitchTarget(current.terms_required ? current.organization : null);
     setSwitchAccepted(false); setSwitchUnconfirmed(false); setAccepted(false);
     setScreen(current.terms_required ? 'switch' : 'home');
-    try {await connectionStore.save(normalizeOrigin(server, __DEV__), current.organization.code);}
+    try {await connectionStore.save(current.organization.code);}
     catch {setNotice('No se pudo recordar la junta nueva en este dispositivo.');}
     if (!current.terms_required) {
       try {setDashboard(await gateway.dashboard());}
@@ -581,7 +580,7 @@ function App() {
       {restoring ? <ActivityIndicator /> : <>
         <Text style={styles.help}>{restoreError}</Text>
         <Action label="Reintentar" onPress={() => setRestoreAttempt(value => value + 1)} />
-        <Action label="Cambiar junta o servidor" onPress={() => {
+        <Action label="Cambiar junta" onPress={() => {
           void connectionStore.clear().then(() => {
             setOrganization(null); setClient(null); setCode(''); setPrincipal(null);
             setRestoreError('');
@@ -619,13 +618,12 @@ function App() {
           <Text style={styles.lead}>{recovering ? 'Escribe el correo de tu cuenta para solicitar instrucciones.' : 'Accede al espacio de trabajo de tu junta.'}</Text>
           {!organization ? <View style={styles.card}>
             <Text style={styles.heading}>Identifica tu junta</Text>
-            <Text style={styles.help}>El administrador te proporciona el código de junta. Para pruebas en el emulador, el servidor local usa 10.0.2.2.</Text>
-            <Field label="Dirección del servidor" value={server} onChangeText={value => {setServer(value); resetOrganization();}} placeholder="https://srd.ejemplo.com" autoCapitalize="none" keyboardType="url" />
+            <Text style={styles.help}>El administrador de tu comunidad te proporciona este código para identificar tu junta.</Text>
             <Field label="Código de junta" value={code} onChangeText={value => {setCode(value); resetOrganization();}} placeholder="Código asignado" autoCapitalize="none" />
             <Action label="Continuar" onPress={findOrganization} disabled={busy} />
           </View> : <View style={styles.card}>
             <Text style={styles.organization}>{organization.name}</Text>
-            <Pressable onPress={changeOrganization} disabled={busy}><Text style={styles.link}>Cambiar junta o servidor</Text></Pressable>
+            <Pressable onPress={changeOrganization} disabled={busy}><Text style={styles.link}>Cambiar junta</Text></Pressable>
             <Field label="Correo electrónico" value={email} onChangeText={setEmail} placeholder="tu@correo.com" autoCapitalize="none" keyboardType="email-address" />
             {recovering ? <>
               <Text style={styles.help}>Te enviaremos instrucciones si la cuenta está habilitada. El enlace de recuperación se abre en la web de SRD.</Text>

@@ -17,7 +17,11 @@ test('muestra el inicio de sesión como primera pantalla', async () => {
   await ReactTestRenderer.act(async () => {
     tree = ReactTestRenderer.create(<App />);
   });
-  expect(JSON.stringify(tree!.toJSON())).toContain('Iniciar sesión');
+  const content = JSON.stringify(tree!.toJSON());
+  expect(content).toContain('Iniciar sesión');
+  expect(content).toContain('Código de junta');
+  expect(content).not.toContain('Dirección del servidor');
+  expect(tree!.root.findAllByType(TextInput).map(input => input.props.accessibilityLabel)).toEqual(['Código de junta']);
   await ReactTestRenderer.act(async () => tree!.unmount());
 }, 20000);
 
@@ -25,6 +29,22 @@ const organization = {code: 'junta-prueba', name: 'Junta prueba', terms: {id: 't
 const principal = {user_id: 'u1', role: 'admin', user: {name: 'Ana', email: 'ana@example.test', theme: 'light', presence: 'online'}, organization, terms_required: false};
 const response = (data: unknown, status = 200) => ({ok: status < 400, status, json: async () => ({data})}) as Response;
 const organizationB = {code: 'junta-b', name: 'Junta B', terms: {id: 't-b', version: 2, body: 'Términos propios de B'}};
+
+test('valida el código con el gateway HTTPS fijo y guarda solo el código de junta', async () => {
+  const save = jest.fn().mockResolvedValue(undefined);
+  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: ''}), save};
+  globalThis.fetch = jest.fn().mockResolvedValue(response(organization));
+  let tree: ReactTestRenderer.ReactTestRenderer;
+  await ReactTestRenderer.act(async () => {tree = ReactTestRenderer.create(<App />);});
+  const codeInput = tree!.root.findAllByType(TextInput).find(node => node.props.accessibilityLabel === 'Código de junta');
+  await ReactTestRenderer.act(async () => {codeInput!.props.onChangeText('junta-prueba');});
+  await ReactTestRenderer.act(async () => {button(tree!, 'Continuar').props.onPress();});
+  expect(globalThis.fetch).toHaveBeenCalledWith('https://srd-jsgh1.duckdns.org/api/v1/organizations/junta-prueba', expect.anything());
+  expect(save).toHaveBeenCalledWith('junta-prueba');
+  expect(save).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(tree!.toJSON())).toContain('Junta prueba');
+  await ReactTestRenderer.act(async () => tree!.unmount());
+});
 
 function button(tree: ReactTestRenderer.ReactTestRenderer, label: string) {
   const found = tree.root.findAll(node => node.props.accessibilityRole === 'button'
@@ -39,7 +59,7 @@ afterEach(() => {
 });
 
 test('hardware Back returns from the people list to the dashboard', async () => {
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({origin: 'https://srd.example.test', code: organization.code})};
+  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code})};
   let onBack: Parameters<typeof BackHandler.addEventListener>[1] | undefined;
   jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, listener) => {
     onBack = listener;
@@ -62,7 +82,7 @@ test('hardware Back returns from the people list to the dashboard', async () => 
 });
 
 test('recupera la sesión vigente sin guardar credenciales', async () => {
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({origin: 'https://srd.example.test', code: organization.code})};
+  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code})};
   globalThis.fetch = jest.fn()
     .mockResolvedValueOnce(response(organization))
     .mockResolvedValueOnce(response(principal))
@@ -70,12 +90,12 @@ test('recupera la sesión vigente sin guardar credenciales', async () => {
   let tree: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => {tree = ReactTestRenderer.create(<App />);});
   expect(JSON.stringify(tree!.toJSON())).toContain('"Hola, ","Ana"');
-  expect(globalThis.fetch).toHaveBeenCalledWith('https://srd.example.test/api/v1/me', expect.objectContaining({credentials: 'include'}));
+  expect(globalThis.fetch).toHaveBeenCalledWith('https://srd-jsgh1.duckdns.org/api/v1/me', expect.objectContaining({credentials: 'include'}));
   await ReactTestRenderer.act(async () => tree!.unmount());
 });
 
 test('pide credenciales para la junta recordada si la sesión venció', async () => {
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({origin: 'https://srd.example.test', code: organization.code})};
+  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code})};
   globalThis.fetch = jest.fn()
     .mockResolvedValueOnce(response(organization))
     .mockResolvedValueOnce({ok: false, status: 401, json: async () => ({error: {message: 'Sesión vencida'}})} as Response);
@@ -89,7 +109,7 @@ test('pide credenciales para la junta recordada si la sesión venció', async ()
 });
 
 test('retira la vista autenticada si otra sesión revoca el acceso mientras está en segundo plano', async () => {
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({origin: 'https://srd.example.test', code: organization.code})};
+  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code})};
   let onStateChange: Parameters<typeof AppState.addEventListener>[1] | undefined;
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
     onStateChange = listener;
@@ -112,7 +132,7 @@ test('retira la vista autenticada si otra sesión revoca el acceso mientras est�
 });
 
 test('oculta los datos al volver sin red y los muestra tras comprobar de nuevo la sesión', async () => {
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({origin: 'https://srd.example.test', code: organization.code})};
+  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code})};
   let onStateChange: Parameters<typeof AppState.addEventListener>[1] | undefined;
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
     onStateChange = listener;
@@ -141,7 +161,7 @@ test('oculta los datos al volver sin red y los muestra tras comprobar de nuevo l
 
 test('cambia de junta solo tras aceptar términos y sustituye el resumen anterior', async () => {
   const saved = jest.fn().mockResolvedValue(undefined);
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({origin: 'https://srd.example.test', code: organization.code}), save: saved};
+  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code}), save: saved};
   globalThis.fetch = jest.fn()
     .mockResolvedValueOnce(response(organization))
     .mockResolvedValueOnce(response(principal))
@@ -166,14 +186,14 @@ test('cambia de junta solo tras aceptar términos y sustituye el resumen anterio
   expect(content).toContain('JUNTA B');
   expect(content).toContain('"2"');
   expect(content).not.toContain('"7"');
-  expect(saved).toHaveBeenCalledWith('https://srd.example.test', 'junta-b');
+  expect(saved).toHaveBeenCalledWith('junta-b');
   expect(globalThis.fetch).toHaveBeenCalledTimes(8);
   await ReactTestRenderer.act(async () => tree!.unmount());
 });
 
 test('consulta la junta activa tras perder la respuesta y evita repetir el cambio', async () => {
   const saved = jest.fn().mockResolvedValue(undefined);
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({origin: 'https://srd.example.test', code: organization.code}), save: saved};
+  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code}), save: saved};
   globalThis.fetch = jest.fn()
     .mockResolvedValueOnce(response(organization))
     .mockResolvedValueOnce(response(principal))
@@ -198,13 +218,13 @@ test('consulta la junta activa tras perder la respuesta y evita repetir el cambi
   expect(globalThis.fetch).toHaveBeenCalledTimes(6);
   await ReactTestRenderer.act(async () => {button(tree!, 'Comprobar junta activa').props.onPress();});
   expect(JSON.stringify(tree!.toJSON())).toContain('JUNTA B');
-  expect(saved).toHaveBeenCalledWith('https://srd.example.test', 'junta-b');
+  expect(saved).toHaveBeenCalledWith('junta-b');
   expect(globalThis.fetch).toHaveBeenCalledTimes(8);
   await ReactTestRenderer.act(async () => tree!.unmount());
 });
 
 test('exige aceptar los términos renovados de la junta activa antes del resumen', async () => {
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({origin: 'https://srd.example.test', code: organization.code}), save: jest.fn().mockResolvedValue(undefined)};
+  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code}), save: jest.fn().mockResolvedValue(undefined)};
   globalThis.fetch = jest.fn()
     .mockResolvedValueOnce(response(organization))
     .mockResolvedValueOnce(response({...principal, terms_required: true}))

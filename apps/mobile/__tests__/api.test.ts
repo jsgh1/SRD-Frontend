@@ -1,4 +1,5 @@
-import {GatewayClient, NetworkError, normalizeOrigin, UnconfirmedWriteError} from '../src/api';
+import {GatewayClient, NetworkError, UnconfirmedWriteError} from '../src/api';
+import {SRD_API_ORIGIN} from '../src/config';
 
 const response = (data: unknown, status = 200) => ({
   ok: status >= 200 && status < 300,
@@ -6,18 +7,20 @@ const response = (data: unknown, status = 200) => ({
   json: async () => ({data}),
 }) as Response;
 
-describe('dirección del gateway', () => {
-  test('acepta HTTPS y elimina la barra final', () => {
-    expect(normalizeOrigin(' https://srd.ejemplo.com/ ', false)).toBe('https://srd.ejemplo.com');
+describe('servidor móvil', () => {
+  test('usa el gateway HTTPS del VPS', () => {
+    const gateway = new URL(SRD_API_ORIGIN);
+    expect(gateway.protocol).toBe('https:');
+    expect(gateway.hostname).toBe('srd-jsgh1.duckdns.org');
+    expect(gateway.pathname).toBe('/');
   });
-  test('limita HTTP al emulador de desarrollo', () => {
-    expect(normalizeOrigin('http://10.0.2.2:8080', true)).toBe('http://10.0.2.2:8080');
-    expect(() => normalizeOrigin('http://10.0.2.2:8080', false)).toThrow('HTTPS');
-    expect(() => normalizeOrigin('http://example.com', true)).toThrow('HTTPS');
-  });
-  test('rechaza rutas y credenciales', () => {
-    expect(() => normalizeOrigin('https://example.com/path', false)).toThrow('solo el origen');
-    expect(() => normalizeOrigin('https://user:pass@example.com', false)).toThrow('solo el origen');
+  test('fija el origen sin usuario, puerto, ruta ni parámetros configurables', () => {
+    const gateway = new URL(SRD_API_ORIGIN);
+    expect(gateway.username).toBe('');
+    expect(gateway.password).toBe('');
+    expect(gateway.port).toBe('');
+    expect(gateway.search).toBe('');
+    expect(gateway.hash).toBe('');
   });
 });
 

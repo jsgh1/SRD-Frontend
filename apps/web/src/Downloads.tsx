@@ -79,11 +79,33 @@ export function Downloads() {
         {loading ? t('Comprobando la versión disponible…') : t('El instalador para Windows todavía no está disponible.')}
       </p>}
     </section>
-    <section className="panel download-mobile" aria-labelledby="android-release-title">
-      <Smartphone size={24} strokeWidth={1.8} aria-hidden="true" />
-      <div><h2 id="android-release-title">{t('SRD para Android')}</h2>
-        <p>{t('La aplicación para Android aún no tiene un paquete verificado para descargar.')}</p></div>
-      <span>{t('No disponible')}</span>
+    <section className="panel download-release" aria-labelledby="android-release-title">
+      <div className="download-release-main">
+        <span className="download-platform-icon" aria-hidden="true"><Smartphone size={28} strokeWidth={1.8} /></span>
+        <div>
+          <h2 id="android-release-title">{t('SRD para Android')}</h2>
+          <p>{t('Instala SRD en tu celular y accede a la junta con una conexión segura a Internet.')}</p>
+        </div>
+      </div>
+      <dl className="download-details">
+        <div><dt>{t('Versión')}</dt><dd>1.0.1</dd></div>
+        <div><dt>{t('Sistema')}</dt><dd>{t('Android 7.0 o posterior')}</dd></div>
+        <div><dt>{t('Paquete')}</dt><dd>SRD-Android-1.0.1-Demo.apk</dd></div>
+        <div><dt>{t('Tamaño')}</dt><dd>{(123908991 / 1024 / 1024).toLocaleString(formatLocale(), { maximumFractionDigits: 1 })} MB</dd></div>
+        <div><dt>{t('Publicado')}</dt><dd>{new Date('2026-10-28T12:00:00Z').toLocaleDateString(formatLocale(), { dateStyle: 'medium', timeZone: 'UTC' })}</dd></div>
+        <div><dt>{t('Firma')}</dt><dd>{t('Certificado de demostración')}</dd></div>
+      </dl>
+      <div className="download-actions">
+        <a className="primary download-button" href="https://github.com/jsgh1/SRD-Frontend/releases/download/srd-android-demo-1.0.1/SRD-Android-1.0.1-Demo.apk">
+          <Download size={18} /> {t('Descargar para Android')}
+        </a>
+        <p>{t('Es una APK de demostración firmada con una clave de depuración; no es una publicación de Play Store y está destinada a la exposición.')}</p>
+      </div>
+      <div className="download-checksum">
+        <ShieldCheck size={17} aria-hidden="true" />
+        <div><strong>SHA-256</strong><code>52ed15e3f72ff12a910ebb8eefeb522a39132047205575f5db3771e787aea5ae</code></div>
+      </div>
+      <p className="download-install-note">{t('Android puede pedir autorización para instalar esta aplicación descargada. Verifica que el archivo se llame SRD-Android-1.0.1-Demo.apk.')}</p>
     </section>
   </div>;
 }

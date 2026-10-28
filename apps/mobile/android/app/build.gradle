@@ -12,9 +12,8 @@ react {
     // conserva el comportamiento normal de desarrollo.
     if (project.hasProperty("srdEmbedDebugJs") && project.property("srdEmbedDebugJs").toString() == "true") {
         debuggableVariants = []
-        // El plugin añade --dev false antes de estos argumentos. Para el APK
-        // local, el último --dev true conserva la URL HTTP del emulador.
-        extraPackagerArgs = ["--max-workers", "2", "--dev", "true"]
+        // El APK autónomo usa el gateway HTTPS y no necesita Metro.
+        extraPackagerArgs = ["--max-workers", "2", "--dev", "false"]
     }
 
     /* Folders */
@@ -92,8 +91,8 @@ android {
         applicationId "com.srd.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.0.1"
         manifestPlaceholders = [usesCleartextTraffic: "false"]
     }
     signingConfigs {
@@ -107,7 +106,6 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
-            manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
         release {
             // Caution! In production, you need to generate your own keystore file.

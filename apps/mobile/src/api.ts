@@ -141,24 +141,6 @@ export class NetworkError extends Error {
 
 export class UnconfirmedWriteError extends Error {}
 
-export function normalizeOrigin(input: string, allowLocalHttp: boolean): string {
-  const value = input.trim();
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error('Escribe la dirección completa del servidor, por ejemplo https://srd.ejemplo.com.');
-  }
-  if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
-    throw new Error('La dirección debe contener solo el origen del servidor.');
-  }
-  const local = ['10.0.2.2', '127.0.0.1', 'localhost'].includes(url.hostname);
-  if (url.protocol !== 'https:' && !(allowLocalHttp && url.protocol === 'http:' && local)) {
-    throw new Error('Usa HTTPS. HTTP solo se permite en el emulador local de desarrollo.');
-  }
-  return url.origin;
-}
-
 export class GatewayClient {
   private csrf = '';
   constructor(private readonly origin: string) {}

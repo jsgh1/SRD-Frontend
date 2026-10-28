@@ -6,7 +6,7 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.WritableNativeMap
 
-/** Guarda solo la dirección y la junta; nunca credenciales ni cookies. */
+/** Guarda solo el código de la junta; el servidor HTTPS está definido en la app. */
 class ConnectionModule(context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
   private val preferences = context.getSharedPreferences("srd_connection", 0)
 
@@ -15,17 +15,16 @@ class ConnectionModule(context: ReactApplicationContext) : ReactContextBaseJavaM
   @ReactMethod
   fun load(promise: Promise) {
     val result = WritableNativeMap()
-    result.putString("origin", preferences.getString("origin", ""))
     result.putString("code", preferences.getString("code", ""))
     promise.resolve(result)
   }
 
   @ReactMethod
-  fun save(origin: String, code: String, promise: Promise) {
-    if (preferences.edit().putString("origin", origin).putString("code", code).commit()) {
+  fun save(code: String, promise: Promise) {
+    if (preferences.edit().clear().putString("code", code).commit()) {
       promise.resolve(null)
     } else {
-      promise.reject("SAVE_FAILED", "No se pudo guardar la dirección de la junta.")
+      promise.reject("SAVE_FAILED", "No se pudo guardar el código de la junta.")
     }
   }
 
