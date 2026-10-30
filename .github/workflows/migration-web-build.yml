@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -21,10 +23,22 @@ jobs:
       - name: Type-check and build production React web
         working-directory: apps/web
         run: npm run build
+      - name: Run web unit tests with V8 coverage
+        working-directory: apps/web
+        run: npm run test:coverage
+      - name: Publish web coverage artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-coverage
+          path: apps/web/coverage/
+          if-no-files-found: ignore
   desktop-url-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Verify production default and safe development overrides
         working-directory: apps/desktop
         run: node --test tests/*.test.cjs
