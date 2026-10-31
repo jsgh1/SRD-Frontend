@@ -64,6 +64,45 @@ describe("web API client", () => {
     });
   });
 
+  it("discards the cached CSRF token after session expiry before the next write", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { token: "csrf-before-expiry" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { id: "person-1" } }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "La sesión venció." } }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { token: "csrf-after-expiry" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { challenge_id: "challenge-1" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    const { api, ApiError } = await import("./api");
+
+    await expect(api("persons", "POST", { first_names: "Persona sintética" })).resolves.toEqual({
+      id: "person-1",
+    });
+    await expect(api("auth/me")).rejects.toBeInstanceOf(ApiError);
+    await expect(api("auth/login", "POST", { email: "test@example.test" })).resolves.toEqual({
+      challenge_id: "challenge-1",
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/v1/csrf", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/v1/csrf", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/v1/auth/login", expect.objectContaining({
+      headers: expect.objectContaining({ "X-CSRF-TOKEN": "csrf-after-expiry" }),
+    }));
+  });
+
   it("reports a connection failure without claiming the request succeeded", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("network unavailable"));
     const { api } = await import("./api");
