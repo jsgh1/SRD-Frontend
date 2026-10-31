@@ -12,7 +12,7 @@ import {SwitchOrganizationScreen} from './src/SwitchOrganization';
 import {InventoryScreen} from './src/Inventory';
 import {TreasuryScreen} from './src/Treasury';
 import {connectionStore} from './src/connection';
-import {SRD_API_ORIGIN} from './src/config';
+import {getSrdApiOrigin} from './src/config';
 import {SrdThemeContext, srdThemes, useSrdStyles, useSrdTheme, type SrdTheme} from './src/theme';
 
 const documentTypes: Array<{code: DocumentType; label: string}> = [
@@ -100,7 +100,7 @@ function App() {
       try {
         const saved = await connectionStore.load();
         if (!saved.code) return;
-        const gateway = new GatewayClient(SRD_API_ORIGIN);
+        const gateway = new GatewayClient(getSrdApiOrigin());
         const found = await gateway.organization(saved.code);
         if (cancelled) return;
         setCode(found.code); setOrganization(found); setClient(gateway);
@@ -259,7 +259,7 @@ function App() {
   function findOrganization() {
     run(async () => {
       if (!code.trim()) throw new Error('Ingresa el código de tu junta.');
-      const gateway = new GatewayClient(SRD_API_ORIGIN);
+      const gateway = new GatewayClient(getSrdApiOrigin());
       const found = await gateway.organization(code);
       setOrganization(found); setClient(gateway);
       try {await connectionStore.save(found.code);}

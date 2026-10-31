@@ -32,7 +32,7 @@ const organizationB = {code: 'junta-b', name: 'Junta B', terms: {id: 't-b', vers
 
 test('valida el código con el gateway HTTPS fijo y guarda solo el código de junta', async () => {
   const save = jest.fn().mockResolvedValue(undefined);
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: ''}), save};
+  NativeModules.SrdConnection = {apiOrigin: 'https://srd-jsgh1.duckdns.org', qaBuild: false, load: jest.fn().mockResolvedValue({code: ''}), save};
   globalThis.fetch = jest.fn().mockResolvedValue(response(organization));
   let tree: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => {tree = ReactTestRenderer.create(<App />);});
@@ -59,7 +59,7 @@ afterEach(() => {
 });
 
 test('hardware Back returns from the people list to the dashboard', async () => {
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code})};
+  NativeModules.SrdConnection = {apiOrigin: 'https://srd-jsgh1.duckdns.org', qaBuild: false, load: jest.fn().mockResolvedValue({code: organization.code})};
   let onBack: Parameters<typeof BackHandler.addEventListener>[1] | undefined;
   jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, listener) => {
     onBack = listener;
@@ -82,7 +82,7 @@ test('hardware Back returns from the people list to the dashboard', async () => 
 });
 
 test('recupera la sesión vigente sin guardar credenciales', async () => {
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code})};
+  NativeModules.SrdConnection = {apiOrigin: 'https://srd-jsgh1.duckdns.org', qaBuild: false, load: jest.fn().mockResolvedValue({code: organization.code})};
   globalThis.fetch = jest.fn()
     .mockResolvedValueOnce(response(organization))
     .mockResolvedValueOnce(response(principal))
@@ -95,7 +95,7 @@ test('recupera la sesión vigente sin guardar credenciales', async () => {
 });
 
 test('pide credenciales para la junta recordada si la sesión venció', async () => {
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code})};
+  NativeModules.SrdConnection = {apiOrigin: 'https://srd-jsgh1.duckdns.org', qaBuild: false, load: jest.fn().mockResolvedValue({code: organization.code})};
   globalThis.fetch = jest.fn()
     .mockResolvedValueOnce(response(organization))
     .mockResolvedValueOnce({ok: false, status: 401, json: async () => ({error: {message: 'Sesión vencida'}})} as Response);
@@ -109,7 +109,7 @@ test('pide credenciales para la junta recordada si la sesión venció', async ()
 });
 
 test('retira la vista autenticada si otra sesión revoca el acceso mientras está en segundo plano', async () => {
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code})};
+  NativeModules.SrdConnection = {apiOrigin: 'https://srd-jsgh1.duckdns.org', qaBuild: false, load: jest.fn().mockResolvedValue({code: organization.code})};
   let onStateChange: Parameters<typeof AppState.addEventListener>[1] | undefined;
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
     onStateChange = listener;
@@ -132,7 +132,7 @@ test('retira la vista autenticada si otra sesión revoca el acceso mientras est�
 });
 
 test('oculta los datos al volver sin red y los muestra tras comprobar de nuevo la sesión', async () => {
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code})};
+  NativeModules.SrdConnection = {apiOrigin: 'https://srd-jsgh1.duckdns.org', qaBuild: false, load: jest.fn().mockResolvedValue({code: organization.code})};
   let onStateChange: Parameters<typeof AppState.addEventListener>[1] | undefined;
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
     onStateChange = listener;
@@ -161,7 +161,7 @@ test('oculta los datos al volver sin red y los muestra tras comprobar de nuevo l
 
 test('cambia de junta solo tras aceptar términos y sustituye el resumen anterior', async () => {
   const saved = jest.fn().mockResolvedValue(undefined);
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code}), save: saved};
+  NativeModules.SrdConnection = {apiOrigin: 'https://srd-jsgh1.duckdns.org', qaBuild: false, load: jest.fn().mockResolvedValue({code: organization.code}), save: saved};
   globalThis.fetch = jest.fn()
     .mockResolvedValueOnce(response(organization))
     .mockResolvedValueOnce(response(principal))
@@ -193,7 +193,7 @@ test('cambia de junta solo tras aceptar términos y sustituye el resumen anterio
 
 test('consulta la junta activa tras perder la respuesta y evita repetir el cambio', async () => {
   const saved = jest.fn().mockResolvedValue(undefined);
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code}), save: saved};
+  NativeModules.SrdConnection = {apiOrigin: 'https://srd-jsgh1.duckdns.org', qaBuild: false, load: jest.fn().mockResolvedValue({code: organization.code}), save: saved};
   globalThis.fetch = jest.fn()
     .mockResolvedValueOnce(response(organization))
     .mockResolvedValueOnce(response(principal))
@@ -224,7 +224,7 @@ test('consulta la junta activa tras perder la respuesta y evita repetir el cambi
 });
 
 test('exige aceptar los términos renovados de la junta activa antes del resumen', async () => {
-  NativeModules.SrdConnection = {load: jest.fn().mockResolvedValue({code: organization.code}), save: jest.fn().mockResolvedValue(undefined)};
+  NativeModules.SrdConnection = {apiOrigin: 'https://srd-jsgh1.duckdns.org', qaBuild: false, load: jest.fn().mockResolvedValue({code: organization.code}), save: jest.fn().mockResolvedValue(undefined)};
   globalThis.fetch = jest.fn()
     .mockResolvedValueOnce(response(organization))
     .mockResolvedValueOnce(response({...principal, terms_required: true}))

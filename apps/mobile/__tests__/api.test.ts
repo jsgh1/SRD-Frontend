@@ -1,5 +1,6 @@
 import {GatewayClient, NetworkError, UnconfirmedWriteError} from '../src/api';
-import {SRD_API_ORIGIN} from '../src/config';
+import {NativeModules} from 'react-native';
+import {getSrdApiOrigin, resolveSrdApiOrigin, SRD_PRODUCTION_API_ORIGIN} from '../src/config';
 
 const response = (data: unknown, status = 200) => ({
   ok: status >= 200 && status < 300,
@@ -7,23 +8,29 @@ const response = (data: unknown, status = 200) => ({
   json: async () => ({data}),
 }) as Response;
 
-describe('servidor móvil', () => {
-  test('usa el gateway HTTPS del VPS', () => {
-    const gateway = new URL(SRD_API_ORIGIN);
-    expect(gateway.protocol).toBe('https:');
-    expect(gateway.hostname).toBe('srd-jsgh1.duckdns.org');
-    expect(gateway.pathname).toBe('/');
+describe('mobile API environment', () => {
+  test('keeps the official Gateway in the production variant', () => {
+    expect(resolveSrdApiOrigin({apiOrigin: SRD_PRODUCTION_API_ORIGIN, qaBuild: false})).toBe(SRD_PRODUCTION_API_ORIGIN);
   });
-  test('fija el origen sin usuario, puerto, ruta ni parámetros configurables', () => {
-    const gateway = new URL(SRD_API_ORIGIN);
-    expect(gateway.username).toBe('');
-    expect(gateway.password).toBe('');
-    expect(gateway.port).toBe('');
-    expect(gateway.search).toBe('');
-    expect(gateway.hash).toBe('');
+  test('accepts a local or test Gateway only in QA', () => {
+    expect(resolveSrdApiOrigin({apiOrigin: 'http://127.0.0.1:8080', qaBuild: true})).toBe('http://127.0.0.1:8080');
+    expect(resolveSrdApiOrigin({apiOrigin: 'https://srd-qa.test', qaBuild: true})).toBe('https://srd-qa.test');
+  });
+  test('rejects production, public hosts, credentials and paths in QA', () => {
+    for (const apiOrigin of [SRD_PRODUCTION_API_ORIGIN, 'https://example.com', 'http://user:secret@127.0.0.1:8080', 'http://127.0.0.1:8080/api']) {
+      expect(() => resolveSrdApiOrigin({apiOrigin, qaBuild: true})).toThrow();
+    }
+  });
+  test('rejects overrides in the production variant', () => {
+    expect(() => resolveSrdApiOrigin({apiOrigin: 'http://127.0.0.1:8080', qaBuild: false})).toThrow();
+  });
+  test('reads the origin and QA flag as native module constants', () => {
+    const previous = NativeModules.SrdConnection;
+    NativeModules.SrdConnection = {apiOrigin: 'http://127.0.0.1:8080', qaBuild: true};
+    expect(getSrdApiOrigin()).toBe('http://127.0.0.1:8080');
+    NativeModules.SrdConnection = previous;
   });
 });
-
 describe('cliente del gateway', () => {
   beforeEach(() => jest.resetAllMocks());
   test('consulta la junta sin exponer claves en la URL', async () => {
