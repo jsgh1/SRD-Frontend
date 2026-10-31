@@ -57,7 +57,17 @@ jobs:
         run: npm run lint
 
       - name: Export the Android JavaScript bundle
-        run: npx expo export --platform android --output-dir "$RUNNER_TEMP/srd-expo-android-export"
+        env:
+          EXPO_PUBLIC_SRD_QA_ONLY: '1'
+        run: npx expo export --platform android --no-bytecode --output-dir "$RUNNER_TEMP/srd-expo-android-export"
+
+      - name: Verify the isolated QA guard in the JavaScript export
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="$(find "$RUNNER_TEMP/srd-expo-android-export" -type f -name '*.js' -print -quit)"
+          test -n "$bundle"
+          grep -aFq 'Esta compilación de QA solo permite conexiones con servicios locales.' "$bundle"
 
       - name: Check runner capacity before native Android build
         shell: bash
@@ -117,7 +127,6 @@ jobs:
           test -f "$apk"
           "${ANDROID_HOME}/build-tools/37.0.0/aapt" dump badging "$apk" | grep -Fq "package: name='com.srd.mobileexpo'"
           "${ANDROID_HOME}/build-tools/37.0.0/apksigner" verify "$apk"
-          grep -aFq 'Esta compilación de QA solo permite conexiones con servicios locales.' app/build/generated/assets/react/release/index.android.bundle
 
       - name: Install and launch the native app in an ephemeral Android emulator
         uses: reactivecircus/android-emulator-runner@v2
