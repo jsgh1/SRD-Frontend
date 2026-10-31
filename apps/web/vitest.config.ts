@@ -17,6 +17,7 @@ export default defineConfig({
         // Guard the initial tested surfaces while broad application coverage grows.
         "src/api.ts": { statements: 75, branches: 55, functions: 80, lines: 90, perFile: true },
         "src/ui.tsx": { statements: 55, branches: 70, functions: 55, lines: 60, perFile: true },
+        "src/QuickLinks.tsx": { statements: 90, branches: 75, functions: 85, lines: 90, perFile: true },
       },
     },
   },
