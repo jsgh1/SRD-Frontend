@@ -105,19 +105,19 @@ jobs:
           sdkmanager --install 'build-tools;37.0.0'
           npx expo prebuild --platform android --no-install
 
-      - name: Build and verify an ephemeral SDK 58 debug APK
+      - name: Build and verify an ephemeral SDK 58 release APK
         shell: bash
         env:
           EXPO_PUBLIC_SRD_QA_ONLY: '1'
         run: |
           set -euo pipefail
           cd android
-          ./gradlew :app:assembleDebug --no-daemon --max-workers=2
-          apk='app/build/outputs/apk/debug/app-debug.apk'
+          ./gradlew :app:assembleRelease --no-daemon --max-workers=2
+          apk='app/build/outputs/apk/release/app-release.apk'
           test -f "$apk"
           "${ANDROID_HOME}/build-tools/37.0.0/aapt" dump badging "$apk" | grep -Fq "package: name='com.srd.mobileexpo'"
           "${ANDROID_HOME}/build-tools/37.0.0/apksigner" verify "$apk"
-          grep -aFq 'Esta compilación de QA solo permite conexiones con servicios locales.' app/build/generated/assets/createBundleDebugJsAndAssets/index.android.bundle
+          grep -aFq 'Esta compilación de QA solo permite conexiones con servicios locales.' app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle
 
       - name: Install and launch the native app in an ephemeral Android emulator
         uses: reactivecircus/android-emulator-runner@v2
@@ -135,7 +135,7 @@ jobs:
           script: |
             set -euo pipefail
             mkdir -p test-results
-            adb install -t apps/mobile-expo/android/app/build/outputs/apk/debug/app-debug.apk
+            adb install -t apps/mobile-expo/android/app/build/outputs/apk/release/app-release.apk
             adb shell monkey -p com.srd.mobileexpo -c android.intent.category.LAUNCHER 1
             for attempt in $(seq 1 60); do
               adb shell uiautomator dump /sdcard/srd-expo-window.xml >/dev/null 2>&1 || true
