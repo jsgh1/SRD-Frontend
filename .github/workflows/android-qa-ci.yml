@@ -100,7 +100,7 @@ jobs:
             echo "Gradle accepted the production origin for the QA flavor."
             exit 1
           fi
-          if ! grep -Fq "QA accepts only a local, private or .test origin." "${log_file}"; then
+          if ! grep -Fq "QA accepts only a local, private or .test origin" "${log_file}"; then
             echo "Gradle failed for a reason other than the expected QA origin guard."
             tail -n 40 "${log_file}"
             exit 1
