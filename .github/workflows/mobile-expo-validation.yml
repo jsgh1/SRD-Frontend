@@ -117,7 +117,7 @@ jobs:
           test -f "$apk"
           "${ANDROID_HOME}/build-tools/37.0.0/aapt" dump badging "$apk" | grep -Fq "package: name='com.srd.mobileexpo'"
           "${ANDROID_HOME}/build-tools/37.0.0/apksigner" verify "$apk"
-          grep -aFq 'Esta compilación de QA solo permite conexiones con servicios locales.' app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle
+          grep -aFq 'Esta compilación de QA solo permite conexiones con servicios locales.' app/build/generated/assets/react/release/index.android.bundle
 
       - name: Install and launch the native app in an ephemeral Android emulator
         uses: reactivecircus/android-emulator-runner@v2
@@ -134,13 +134,13 @@ jobs:
           emulator-boot-timeout: 600
           script: |
             set -euo pipefail
-            mkdir -p test-results
+            mkdir -p apps/mobile-expo/test-results
             adb install -t apps/mobile-expo/android/app/build/outputs/apk/release/app-release.apk
             adb shell monkey -p com.srd.mobileexpo -c android.intent.category.LAUNCHER 1
             for attempt in $(seq 1 60); do
               adb shell uiautomator dump /sdcard/srd-expo-window.xml >/dev/null 2>&1 || true
               if adb exec-out cat /sdcard/srd-expo-window.xml 2>/dev/null | grep -Fq 'Identifica tu junta'; then
-                cat > test-results/expo-native-emulator.junit.xml <<'EOF'
+                cat > apps/mobile-expo/test-results/expo-native-emulator.junit.xml <<'EOF'
             <?xml version="1.0" encoding="UTF-8"?>
             <testsuite name="SRD Expo SDK 58 native startup" tests="1" failures="0" errors="0" skipped="0">
               <testcase classname="srd.expo.android" name="install and render join screen"/>
@@ -151,7 +151,7 @@ jobs:
               fi
               sleep 1
             done
-            cat > test-results/expo-native-emulator.junit.xml <<'EOF'
+            cat > apps/mobile-expo/test-results/expo-native-emulator.junit.xml <<'EOF'
             <?xml version="1.0" encoding="UTF-8"?>
             <testsuite name="SRD Expo SDK 58 native startup" tests="1" failures="1" errors="0" skipped="0">
               <testcase classname="srd.expo.android" name="install and render join screen">
@@ -168,8 +168,8 @@ jobs:
         with:
           name: srd-expo-sdk58-native-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            test-results/expo-native-emulator.junit.xml
-            test-results/expo-native-runner-capacity.txt
+            apps/mobile-expo/test-results/expo-native-emulator.junit.xml
+            apps/mobile-expo/test-results/expo-native-runner-capacity.txt
           if-no-files-found: warn
           retention-days: 7
 
