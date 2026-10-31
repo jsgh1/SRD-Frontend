@@ -65,9 +65,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bundle="$(find "$RUNNER_TEMP/srd-expo-android-export" -type f -name '*.js' -print -quit)"
-          test -n "$bundle"
-          grep -aFq 'Esta compilación de QA solo permite conexiones con servicios locales.' "$bundle"
+          grep -R -aFq -- 'Esta compilación de QA solo permite conexiones con servicios locales.' \
+            "$RUNNER_TEMP/srd-expo-android-export"
 
       - name: Check runner capacity before native Android build
         shell: bash
