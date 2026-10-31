@@ -778,7 +778,7 @@ function App() {
 
 type FieldProps = React.ComponentProps<typeof TextInput> & {label: string};
 function Field({label, ...props}: FieldProps) {
-  return <View style={styles.field}><Text style={styles.label}>{label}</Text><TextInput style={styles.input} placeholderTextColor="#82979b" {...props} /></View>;
+  return <View style={styles.field}><Text style={styles.label}>{label}</Text><TextInput accessibilityLabel={label} style={styles.input} placeholderTextColor="#82979b" {...props} /></View>;
 }
 function Action({label, onPress, disabled, secondary = false}: {label: string; onPress: () => void; disabled?: boolean; secondary?: boolean}) {
   return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[styles.button, secondary && styles.buttonSecondary, disabled && styles.disabled]}><Text style={[styles.buttonText, secondary && styles.buttonTextSecondary]}>{label}</Text></Pressable>;

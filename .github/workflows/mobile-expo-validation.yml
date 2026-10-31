@@ -68,6 +68,12 @@ jobs:
           grep -R -aFq -- 'Esta compilaci\xf3n de QA solo permite conexiones con servicios locales.' \
             "$RUNNER_TEMP/srd-expo-android-export"
 
+      - name: Test the QA and production origin policy
+        run: npm run test:origin
+
+      - name: Test the QA-only Android network configuration
+        run: npm run test:build-policy
+
       - name: Check runner capacity before native Android build
         shell: bash
         run: |
@@ -107,6 +113,9 @@ jobs:
 
       - name: Generate the native Android project with Expo CNG
         shell: bash
+        env:
+          EXPO_PUBLIC_SRD_QA_ONLY: '1'
+          SRD_EXPO_QA_BUILD: '1'
         run: |
           set -euo pipefail
           if grep -RIlF 'srd-jsgh1.duckdns.org' . --exclude=package-lock.json; then
@@ -120,11 +129,13 @@ jobs:
           sdkmanager --install 'platforms;android-37.2' --channel=3
           sdkmanager --install 'build-tools;37.0.0'
           npx expo prebuild --platform android --no-install
+          grep -Fq 'android:usesCleartextTraffic="true"' android/app/src/main/AndroidManifest.xml
 
       - name: Build and verify an ephemeral SDK 58 release APK
         shell: bash
         env:
           EXPO_PUBLIC_SRD_QA_ONLY: '1'
+          SRD_EXPO_QA_BUILD: '1'
         run: |
           set -euo pipefail
           cd android
