@@ -22,9 +22,9 @@ concurrency:
 
 jobs:
   sdk-validation:
-    name: Expo SDK, TypeScript, lint and Android bundle
+    name: Expo SDK 58, checks and native Android acceptance
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: apps/mobile-expo
@@ -58,6 +58,115 @@ jobs:
 
       - name: Export the Android JavaScript bundle
         run: npx expo export --platform android --output-dir "$RUNNER_TEMP/srd-expo-android-export"
+
+      - name: Check runner capacity before native Android build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mem_available_kb="$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo)"
+          disk_available_kb="$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 { print $4 }')"
+          if (( mem_available_kb < 3 * 1024 * 1024 )); then
+            echo 'Native Expo build requires at least 3 GiB available memory.' >&2
+            exit 1
+          fi
+          if (( disk_available_kb < 10 * 1024 * 1024 )); then
+            echo 'Native Expo build requires at least 10 GiB available temporary disk.' >&2
+            exit 1
+          fi
+          mkdir -p test-results
+          {
+            echo "NativeBuildMemAvailableGiB: $((mem_available_kb / 1024 / 1024))"
+            echo "NativeBuildTempDiskAvailableGiB: $((disk_available_kb / 1024 / 1024))"
+          } | tee test-results/expo-native-runner-capacity.txt
+
+      - name: Set up Java 17 and Android SDK 37
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v4
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Generate the native Android project with Expo CNG
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RIlF 'srd-jsgh1.duckdns.org' . --exclude=package-lock.json; then
+            echo 'Expo source unexpectedly contains the production host.' >&2
+            exit 1
+          fi
+          sdkmanager --install 'platforms;android-37' 'build-tools;37.0.0'
+          npx expo prebuild --platform android --no-install
+
+      - name: Build and verify an ephemeral SDK 58 debug APK
+        shell: bash
+        env:
+          EXPO_PUBLIC_SRD_QA_ONLY: '1'
+        run: |
+          set -euo pipefail
+          cd android
+          ./gradlew :app:assembleDebug --no-daemon --max-workers=2
+          apk='app/build/outputs/apk/debug/app-debug.apk'
+          test -f "$apk"
+          "${ANDROID_HOME}/build-tools/37.0.0/aapt" dump badging "$apk" | grep -Fq "package: name='com.srd.mobileexpo'"
+          "${ANDROID_HOME}/build-tools/37.0.0/apksigner" verify "$apk"
+          grep -aFq 'Esta compilación de QA solo permite conexiones con servicios locales.' app/build/generated/assets/createBundleDebugJsAndAssets/index.android.bundle
+
+      - name: Install and launch the native app in an ephemeral Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          disable-spellchecker: true
+          emulator-boot-timeout: 600
+          script: |
+            set -euo pipefail
+            mkdir -p test-results
+            adb install -t apps/mobile-expo/android/app/build/outputs/apk/debug/app-debug.apk
+            adb shell monkey -p com.srd.mobileexpo -c android.intent.category.LAUNCHER 1
+            for attempt in $(seq 1 60); do
+              adb shell uiautomator dump /sdcard/srd-expo-window.xml >/dev/null 2>&1 || true
+              if adb exec-out cat /sdcard/srd-expo-window.xml 2>/dev/null | grep -Fq 'Identifica tu junta'; then
+                cat > test-results/expo-native-emulator.junit.xml <<'EOF'
+            <?xml version="1.0" encoding="UTF-8"?>
+            <testsuite name="SRD Expo SDK 58 native startup" tests="1" failures="0" errors="0" skipped="0">
+              <testcase classname="srd.expo.android" name="install and render join screen"/>
+            </testsuite>
+            EOF
+                echo 'PASS SDK 58 native APK installed and rendered the join screen.'
+                exit 0
+              fi
+              sleep 1
+            done
+            cat > test-results/expo-native-emulator.junit.xml <<'EOF'
+            <?xml version="1.0" encoding="UTF-8"?>
+            <testsuite name="SRD Expo SDK 58 native startup" tests="1" failures="1" errors="0" skipped="0">
+              <testcase classname="srd.expo.android" name="install and render join screen">
+                <failure message="join screen not rendered within 60 seconds"/>
+              </testcase>
+            </testsuite>
+            EOF
+            echo 'Expo native APK did not render the join screen within 60 seconds.' >&2
+            exit 1
+
+      - name: Preserve non-secret native acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: srd-expo-sdk58-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/expo-native-emulator.junit.xml
+            test-results/expo-native-runner-capacity.txt
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Reject high and critical dependency advisories
         run: npm audit --audit-level=high

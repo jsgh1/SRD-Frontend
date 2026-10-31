@@ -85,6 +85,9 @@ export function normalizeOrigin(input: string, allowLocalHttp: boolean): string 
     throw new Error('La dirección debe contener solo el origen del servidor.');
   }
   const local = ['10.0.2.2', '127.0.0.1', 'localhost'].includes(url.hostname);
+  if (process.env.EXPO_PUBLIC_SRD_QA_ONLY === '1' && !local) {
+    throw new Error('Esta compilación de QA solo permite conexiones con servicios locales.');
+  }
   if (url.protocol !== 'https:' && !(allowLocalHttp && url.protocol === 'http:' && local)) {
     throw new Error('Usa HTTPS. HTTP solo se permite para la conexión local de desarrollo.');
   }
