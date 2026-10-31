@@ -106,6 +106,19 @@ jobs:
             exit 1
           fi
 
+      - name: Create an ephemeral QA debug signing key
+        working-directory: apps/mobile/android/app
+        run: >-
+          keytool -genkeypair -v
+          -keystore debug.keystore
+          -storepass android
+          -alias androiddebugkey
+          -keypass android
+          -dname "CN=Android Debug,O=Android,C=US"
+          -keyalg RSA
+          -keysize 2048
+          -validity 10000
+
       - name: Assemble the isolated QA debug APK
         working-directory: apps/mobile/android
         run: >-
