@@ -1,0 +1,145 @@
+name: Android QA
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "apps/mobile/**"
+      - ".github/workflows/android-qa-ci.yml"
+  push:
+    branches: [dev]
+    paths:
+      - "apps/mobile/**"
+      - ".github/workflows/android-qa-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mobile-tests-and-apk:
+    name: Mobile tests and QA APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            apps/mobile/android/gradle/wrapper/gradle-wrapper.properties
+            apps/mobile/android/build.gradle
+            apps/mobile/android/settings.gradle
+            apps/mobile/android/gradle.properties
+            apps/mobile/android/app/build.gradle
+
+      - name: Install pinned mobile dependencies
+        working-directory: apps/mobile
+        run: npm ci --no-audit --no-fund
+
+      - name: Run mobile unit tests
+        working-directory: apps/mobile
+        run: npm test -- --runInBand --coverage
+
+      - name: Verify QA rejects the production origin in JavaScript
+        working-directory: apps/mobile
+        run: >-
+          npm test -- --runInBand --runTestsByPath __tests__/api.test.ts
+          --testNamePattern="rejects production, public hosts, credentials and paths in QA"
+
+      - name: Type-check mobile source
+        working-directory: apps/mobile
+        run: npx tsc --noEmit
+
+      - name: Lint mobile source
+        working-directory: apps/mobile
+        run: npm run lint
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Install the pinned Android SDK packages
+        run: >-
+          sdkmanager --install
+          "platforms;android-37.0"
+          "build-tools;37.0.0"
+          "ndk;27.1.12297006"
+
+      - name: Verify Gradle rejects the production origin in QA
+        working-directory: apps/mobile/android
+        shell: bash
+        run: |
+          log_file="${RUNNER_TEMP}/srd-qa-rejects-production.log"
+          set +e
+          bash ./gradlew :app:tasks \
+            -PsrdQaApiOrigin=https://srd-jsgh1.duckdns.org \
+            --no-daemon --max-workers=2 >"${log_file}" 2>&1
+          status=$?
+          set -e
+          if [ "${status}" -eq 0 ]; then
+            echo "Gradle accepted the production origin for the QA flavor."
+            exit 1
+          fi
+          if ! grep -Fq "QA accepts only a local, private or .test origin" "${log_file}"; then
+            echo "Gradle failed for a reason other than the expected QA origin guard."
+            tail -n 40 "${log_file}"
+            exit 1
+          fi
+
+      - name: Create an ephemeral QA debug signing key
+        working-directory: apps/mobile/android/app
+        run: >-
+          keytool -genkeypair -v
+          -keystore debug.keystore
+          -storepass android
+          -alias androiddebugkey
+          -keypass android
+          -dname "CN=Android Debug,O=Android,C=US"
+          -keyalg RSA
+          -keysize 2048
+          -validity 10000
+
+      - name: Assemble the isolated QA debug APK
+        working-directory: apps/mobile/android
+        run: >-
+          bash ./gradlew :app:assembleQaDebug
+          -PsrdEmbedDebugJs=true
+          -PsrdQaApiOrigin=http://127.0.0.1:8080
+          --no-daemon
+          --max-workers=2
+
+      - name: Record QA APK SHA-256
+        shell: bash
+        run: |
+          apk="apps/mobile/android/app/build/outputs/apk/qa/debug/app-qa-debug.apk"
+          test -f "${apk}"
+          sha256sum "${apk}" | tee "${apk}.sha256"
+
+      - name: Publish QA APK for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: srd-android-qa-debug
+          path: |
+            apps/mobile/android/app/build/outputs/apk/qa/debug/*.apk*
+          if-no-files-found: error
+          retention-days: 7
