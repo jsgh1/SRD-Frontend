@@ -2,6 +2,28 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+def productionApiOrigin = "https://srd-jsgh1.duckdns.org"
+def qaApiOrigin = project.findProperty("srdQaApiOrigin")?.toString() ?: "http://127.0.0.1:8080"
+def qaUri
+try {
+    qaUri = new java.net.URI(qaApiOrigin)
+} catch (Exception ignored) {
+    throw new GradleException("srdQaApiOrigin must be a local or private HTTP(S) laboratory origin.")
+}
+def qaHost = qaUri.host?.toLowerCase()
+def qaOctets = qaHost?.split("\\.")?.collect { it.isInteger() ? it.toInteger() : -1 }
+def qaPrivateIpv4 = qaOctets?.size() == 4 && qaOctets.every { it >= 0 && it <= 255 } && (
+    qaOctets[0] == 10 ||
+    (qaOctets[0] == 172 && qaOctets[1] >= 16 && qaOctets[1] <= 31) ||
+    (qaOctets[0] == 192 && qaOctets[1] == 168)
+)
+def qaLabHost = qaHost in ["localhost", "127.0.0.1", "10.0.2.2"] ||
+    qaHost?.endsWith(".localhost") || qaHost?.endsWith(".test") || qaPrivateIpv4
+if (!(qaUri.scheme in ["http", "https"]) || !qaLabHost || qaUri.userInfo || qaUri.query || qaUri.fragment || !(qaUri.path in ["", "/"]) || qaUri.port > 65535 || qaUri.port == 0) {
+    throw new GradleException("QA accepts only a local, private or .test origin, without credentials, path or parameters.")
+}
+qaApiOrigin = qaUri.scheme + "://" + qaUri.rawAuthority
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -14,6 +36,8 @@ react {
         debuggableVariants = []
         // El APK autónomo usa el gateway HTTPS y no necesita Metro.
         extraPackagerArgs = ["--max-workers", "2", "--dev", "false"]
+    } else {
+        debuggableVariants = ["productionDebug", "qaDebug"]
     }
 
     /* Folders */
@@ -87,6 +111,9 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace "com.srd.mobile"
+    buildFeatures {
+        buildConfig true
+    }
     defaultConfig {
         applicationId "com.srd.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -94,6 +121,24 @@ android {
         versionCode 2
         versionName "1.0.1"
         manifestPlaceholders = [usesCleartextTraffic: "false"]
+    }
+    flavorDimensions "environment"
+    productFlavors {
+        production {
+            dimension "environment"
+            buildConfigField "String", "SRD_API_ORIGIN", "\"${productionApiOrigin}\""
+            buildConfigField "boolean", "SRD_QA_BUILD", "false"
+            manifestPlaceholders = [usesCleartextTraffic: "false"]
+        }
+        qa {
+            dimension "environment"
+            applicationIdSuffix ".qa"
+            versionNameSuffix "-qa"
+            resValue "string", "app_name", "SRD QA"
+            buildConfigField "String", "SRD_API_ORIGIN", "\"${qaApiOrigin}\""
+            buildConfigField "boolean", "SRD_QA_BUILD", "true"
+            manifestPlaceholders = [usesCleartextTraffic: qaUri.scheme == "http" ? "true" : "false"]
+        }
     }
     signingConfigs {
         debug {

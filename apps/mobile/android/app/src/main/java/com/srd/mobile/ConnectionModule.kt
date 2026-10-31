@@ -12,6 +12,11 @@ class ConnectionModule(context: ReactApplicationContext) : ReactContextBaseJavaM
 
   override fun getName(): String = "SrdConnection"
 
+  override fun getConstants(): MutableMap<String, Any> = mutableMapOf(
+    "apiOrigin" to BuildConfig.SRD_API_ORIGIN,
+    "qaBuild" to BuildConfig.SRD_QA_BUILD,
+  )
+
   @ReactMethod
   fun load(promise: Promise) {
     val result = WritableNativeMap()
