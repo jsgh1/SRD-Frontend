@@ -74,18 +74,25 @@ jobs:
           set -euo pipefail
           mem_available_kb="$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo)"
           disk_available_kb="$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 { print $4 }')"
-          if (( mem_available_kb < 3 * 1024 * 1024 )); then
-            echo 'Native Expo build requires at least 3 GiB available memory.' >&2
+          if (( mem_available_kb < 5 * 1024 * 1024 )); then
+            echo 'Native Expo emulator requires at least 5 GiB available memory.' >&2
             exit 1
           fi
           if (( disk_available_kb < 10 * 1024 * 1024 )); then
             echo 'Native Expo build requires at least 10 GiB available temporary disk.' >&2
             exit 1
           fi
+          test -c /dev/kvm
+          runner_user="$(id -un)"
+          sudo chown "$runner_user" /dev/kvm
+          sudo chmod 0600 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
           mkdir -p test-results
           {
             echo "NativeBuildMemAvailableGiB: $((mem_available_kb / 1024 / 1024))"
             echo "NativeBuildTempDiskAvailableGiB: $((disk_available_kb / 1024 / 1024))"
+            echo 'KVM: readable and writable by the runner user'
+            stat -c 'KVM device permissions: %a' /dev/kvm
           } | tee test-results/expo-native-runner-capacity.txt
 
       - name: Set up Java 17 and Android SDK 37
