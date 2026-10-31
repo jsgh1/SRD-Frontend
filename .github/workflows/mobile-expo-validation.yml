@@ -1,0 +1,63 @@
+name: Expo mobile validation
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'apps/mobile-expo/**'
+      - '.github/workflows/mobile-expo-validation.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'apps/mobile-expo/**'
+      - '.github/workflows/mobile-expo-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-expo-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sdk-validation:
+    name: Expo SDK, TypeScript, lint and Android bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/mobile-expo
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js required by SDK 58
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.14.0'
+          cache: npm
+          cache-dependency-path: apps/mobile-expo/package-lock.json
+
+      - name: Install the pinned Expo dependency tree
+        run: npm ci --no-audit --no-fund
+
+      - name: Check package compatibility with the installed SDK
+        run: npx expo install --check
+
+      - name: Run Expo Doctor
+        run: npx expo-doctor
+
+      - name: Type-check the mobile client
+        run: npx tsc --noEmit
+
+      - name: Lint the mobile client
+        run: npm run lint
+
+      - name: Export the Android JavaScript bundle
+        run: npx expo export --platform android --output-dir "$RUNNER_TEMP/srd-expo-android-export"
+
+      - name: Reject high and critical dependency advisories
+        run: npm audit --audit-level=high
