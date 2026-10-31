@@ -97,11 +97,11 @@ jobs:
             echo 'Expo source unexpectedly contains the production host.' >&2
             exit 1
           fi
-          sdkmanager --list --channel=3 | grep -F 'platforms;android-37' || {
+          sdkmanager --list --channel=3 | grep -F 'platforms;android-37.2' || {
             echo 'Android API 37 preview is not available in the runner SDK catalog.' >&2
             exit 1
           }
-          sdkmanager --install 'platforms;android-37' --channel=3
+          sdkmanager --install 'platforms;android-37.2' --channel=3
           sdkmanager --install 'build-tools;37.0.0'
           npx expo prebuild --platform android --no-install
 
