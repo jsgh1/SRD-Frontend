@@ -1,0 +1,175 @@
+name: Expo mobile validation
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'apps/mobile-expo/**'
+      - '.github/workflows/mobile-expo-validation.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'apps/mobile-expo/**'
+      - '.github/workflows/mobile-expo-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-expo-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sdk-validation:
+    name: Expo SDK 58, checks and native Android acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: apps/mobile-expo
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js required by SDK 58
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.14.0'
+          cache: npm
+          cache-dependency-path: apps/mobile-expo/package-lock.json
+
+      - name: Install the pinned Expo dependency tree
+        run: npm ci --no-audit --no-fund
+
+      - name: Check package compatibility with the installed SDK
+        run: npx expo install --check
+
+      - name: Run Expo Doctor
+        run: npx expo-doctor
+
+      - name: Type-check the mobile client
+        run: npx tsc --noEmit
+
+      - name: Lint the mobile client
+        run: npm run lint
+
+      - name: Export the Android JavaScript bundle
+        env:
+          EXPO_PUBLIC_SRD_QA_ONLY: '1'
+        run: npx expo export --platform android --no-bytecode --output-dir "$RUNNER_TEMP/srd-expo-android-export"
+
+      - name: Verify the isolated QA guard in the JavaScript export
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R -aFq -- 'Esta compilaci\xf3n de QA solo permite conexiones con servicios locales.' \
+            "$RUNNER_TEMP/srd-expo-android-export"
+
+      - name: Test the QA and production origin policy
+        run: npm run test:origin
+
+      - name: Test the QA-only Android network configuration
+        run: npm run test:build-policy
+
+      - name: Check runner capacity before native Android build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mem_available_kb="$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo)"
+          disk_available_kb="$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 { print $4 }')"
+          if (( mem_available_kb < 5 * 1024 * 1024 )); then
+            echo 'Native Expo emulator requires at least 5 GiB available memory.' >&2
+            exit 1
+          fi
+          if (( disk_available_kb < 10 * 1024 * 1024 )); then
+            echo 'Native Expo build requires at least 10 GiB available temporary disk.' >&2
+            exit 1
+          fi
+          test -c /dev/kvm
+          runner_user="$(id -un)"
+          sudo chown "$runner_user" /dev/kvm
+          sudo chmod 0600 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+          mkdir -p test-results
+          {
+            echo "NativeBuildMemAvailableGiB: $((mem_available_kb / 1024 / 1024))"
+            echo "NativeBuildTempDiskAvailableGiB: $((disk_available_kb / 1024 / 1024))"
+            echo 'KVM: readable and writable by the runner user'
+            stat -c 'KVM device permissions: %a' /dev/kvm
+          } | tee test-results/expo-native-runner-capacity.txt
+
+      - name: Set up Java 17 and Android SDK 37
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v4
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Generate the native Android project with Expo CNG
+        shell: bash
+        env:
+          EXPO_PUBLIC_SRD_QA_ONLY: '1'
+          SRD_EXPO_QA_BUILD: '1'
+        run: |
+          set -euo pipefail
+          if grep -RIlF 'srd-jsgh1.duckdns.org' . --exclude=package-lock.json; then
+            echo 'Expo source unexpectedly contains the production host.' >&2
+            exit 1
+          fi
+          sdkmanager --list --channel=3 | grep -F 'platforms;android-37.2' || {
+            echo 'Android API 37 preview is not available in the runner SDK catalog.' >&2
+            exit 1
+          }
+          sdkmanager --install 'platforms;android-37.2' --channel=3
+          sdkmanager --install 'build-tools;37.0.0'
+          npx expo prebuild --platform android --no-install
+          grep -Fq 'android:usesCleartextTraffic="true"' android/app/src/main/AndroidManifest.xml
+
+      - name: Build and verify an ephemeral SDK 58 release APK
+        shell: bash
+        env:
+          EXPO_PUBLIC_SRD_QA_ONLY: '1'
+          SRD_EXPO_QA_BUILD: '1'
+        run: |
+          set -euo pipefail
+          cd android
+          ./gradlew :app:assembleRelease --no-daemon --max-workers=2
+          apk='app/build/outputs/apk/release/app-release.apk'
+          test -f "$apk"
+          "${ANDROID_HOME}/build-tools/37.0.0/aapt" dump badging "$apk" | grep -Fq "package: name='com.srd.mobileexpo'"
+          "${ANDROID_HOME}/build-tools/37.0.0/apksigner" verify "$apk"
+
+      - name: Install and launch the native app in an ephemeral Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          disable-spellchecker: true
+          emulator-boot-timeout: 600
+          script: bash .github/scripts/expo-native-emulator-smoke.sh
+
+      - name: Preserve non-secret native acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: srd-expo-sdk58-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            apps/mobile-expo/test-results/expo-native-emulator.junit.xml
+            apps/mobile-expo/test-results/expo-native-runner-capacity.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Reject high and critical dependency advisories
+        run: npm audit --audit-level=high
