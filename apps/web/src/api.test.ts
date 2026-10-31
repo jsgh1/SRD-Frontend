@@ -91,7 +91,7 @@ describe("web API client", () => {
     await expect(api("persons", "POST", { first_names: "Persona sintética" })).resolves.toEqual({
       id: "person-1",
     });
-    await expect(api("auth/me")).rejects.toBeInstanceOf(ApiError);
+    await expect(api("me")).rejects.toBeInstanceOf(ApiError);
     await expect(api("auth/login", "POST", { email: "test@example.test" })).resolves.toEqual({
       challenge_id: "challenge-1",
     });
