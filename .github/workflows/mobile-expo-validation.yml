@@ -169,6 +169,8 @@ jobs:
             apps/mobile-expo/test-results/expo-native-emulator.junit.xml
             apps/mobile-expo/test-results/expo-native-runner-capacity.txt
             apps/mobile-expo/test-results/expo-native-state.txt
+            apps/mobile-expo/test-results/expo-native-launch.txt
+            apps/mobile-expo/test-results/expo-native-provenance.txt
             apps/mobile-expo/test-results/expo-native-ui-dump.txt
             apps/mobile-expo/test-results/expo-native-ui.xml
             apps/mobile-expo/test-results/expo-native-logcat.txt
