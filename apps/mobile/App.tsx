@@ -647,7 +647,18 @@ function App() {
           <View style={styles.card}>
             <Field label="Código de verificación" value={verification} onChangeText={setVerification} placeholder="000000" keyboardType="number-pad" maxLength={6} />
             <Action label="Verificar y entrar" onPress={verify} disabled={busy} />
-            <Pressable onPress={resend} disabled={busy || resendAfter > 0}><Text style={styles.link}>{resendAfter > 0 ? `Reenviar en ${resendAfter} s` : 'Reenviar código'}</Text></Pressable>
+            <Pressable
+              onPress={resend}
+              disabled={busy || resendAfter > 0}
+              accessibilityRole="button"
+              accessibilityLabel="Reenviar código"
+              accessibilityState={{disabled: busy || resendAfter > 0}}
+              accessibilityHint={resendAfter > 0 ? 'Espera a que termine el contador para solicitar otro código.' : undefined}
+            >
+              <Text style={styles.link} accessible={false} importantForAccessibility="no">
+                {resendAfter > 0 ? `Reenviar en ${resendAfter} s` : 'Reenviar código'}
+              </Text>
+            </Pressable>
             <Pressable onPress={cancel} disabled={busy}><Text style={styles.link}>Volver al inicio de sesión</Text></Pressable>
           </View>
         </>}
