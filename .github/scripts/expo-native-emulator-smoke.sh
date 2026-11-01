@@ -104,8 +104,9 @@ adb exec-out cat "$window_file" > "$diagnostics_dir/expo-native-ui.xml" 2>/dev/n
 input_node="$(grep -oE '<node[^>]*/>' "$diagnostics_dir/expo-native-ui.xml" |
   grep -F 'class="android.widget.EditText"' |
   grep -F 'content-desc="Código de junta"' | head -n 1 || true)"
-button_node="$(grep -oE '<node[^>]*/>' "$diagnostics_dir/expo-native-ui.xml" |
-  grep -F 'text="Continuar"' |
+button_node="$(grep -oE '<node[^>]*>' "$diagnostics_dir/expo-native-ui.xml" |
+  grep -F 'class="android.widget.Button"' |
+  grep -F 'content-desc="Continuar"' |
   grep -F 'clickable="true"' | head -n 1 || true)"
 if grep -Fq 'Identifica tu junta' "$diagnostics_dir/expo-native-ui.xml" &&
   [[ -n "$input_node" ]] && [[ -n "$button_node" ]] &&
