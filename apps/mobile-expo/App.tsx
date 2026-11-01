@@ -172,7 +172,7 @@ function App() {
 
   useEffect(() => {
     if (resendAfter <= 0) return;
-    const timer = setTimeout(() => setResendAfter(value => Math.max(0, value - 1)), 1000);
+    const timer = setTimeout(() => setResendAfter(0), resendAfter * 1000);
     return () => clearTimeout(timer);
   }, [resendAfter]);
 
@@ -616,10 +616,10 @@ function App() {
               accessibilityRole="button"
               accessibilityLabel="Reenviar código"
               accessibilityState={{disabled: busy || resendAfter > 0}}
-              accessibilityHint={resendAfter > 0 ? 'Espera a que termine el contador para solicitar otro código.' : undefined}
+              accessibilityHint={resendAfter > 0 ? 'Espera a que termine el periodo de espera para solicitar otro código.' : undefined}
             >
               <Text style={styles.link} accessible={false} importantForAccessibility="no">
-                {resendAfter > 0 ? `Reenviar en ${resendAfter} s` : 'Reenviar código'}
+                {resendAfter > 0 ? 'Podrás reenviar cuando termine la espera.' : 'Reenviar código'}
               </Text>
             </Pressable>
             <Pressable onPress={cancel} disabled={busy}><Text style={styles.link}>Volver al inicio de sesión</Text></Pressable>
