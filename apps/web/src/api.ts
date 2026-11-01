@@ -64,7 +64,7 @@ export async function api<T = any>(
       : 'No se pudo confirmar la operación. Recarga para comprobar su estado.');
     throw new Error("No hay conexión. La operación no se ha confirmado.");
   }
-  if (response.status === 419) csrf = "";
+  if (response.status === 401 || response.status === 419) csrf = "";
   let json;
   try { json = await response.json(); }
   catch {
