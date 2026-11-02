@@ -1,8 +1,20 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PersonTable } from './Persons';
+import { ApiError, api, type Principal } from './api';
+import { Persons, PersonTable } from './Persons';
 import type { Person } from './personTypes';
 import { setLanguage } from './i18n';
+
+vi.mock('./api', async importOriginal => {
+  const actual = await importOriginal<typeof import('./api')>();
+  return { ...actual, api: vi.fn() };
+});
+
+vi.mock('./PersonFields', () => ({ AdditionalDetail: () => null, AdditionalInputs: () => null }));
+vi.mock('./PersonPhotos', () => ({ PersonPhotos: () => null }));
+vi.mock('./PersonForm', () => ({ PersonForm: () => null }));
+vi.mock('./Planilla', () => ({ Planilla: () => null }));
+vi.mock('./PersonFilters', () => ({ PersonFilters: () => null }));
 
 const person = {
   id: 'person-1',
@@ -15,10 +27,115 @@ const person = {
   created_at: '2026-10-30 18:00:00',
 } as Person;
 
+const principal = {
+  user_id: 'admin-1',
+  role: 'admin',
+  user: { name: 'Ana', email: 'ana@example.test', theme: 'light', presence: 'online', language: 'es' },
+  organization: { id: 'org-1', code: 'junta-prueba', name: 'Junta de prueba' },
+  terms_required: false,
+} as Principal;
+
+const apiMock = vi.mocked(api);
+const filterSettings = {
+  version: 1,
+  base: ['status', 'zone', 'affiliated'],
+  custom: null,
+  delegated_roles: [],
+  can_manage: false,
+  can_delegate: false,
+};
+
+function renderPersons(onCreate = vi.fn()) {
+  return render(<Persons principal={principal} mode="list" onCreate={onCreate} />);
+}
+
 beforeEach(() => setLanguage('es'));
 afterEach(() => {
   cleanup();
+  apiMock.mockReset();
   setLanguage('es');
+});
+
+describe('Persons list behavior', () => {
+  it('submits only the selected search criteria to the list endpoint', async () => {
+    const requests: string[] = [];
+    apiMock.mockImplementation(((path: string) => {
+      if (path === 'person-filter-settings') return Promise.resolve(filterSettings);
+      if (path.startsWith('persons?page=')) {
+        requests.push(path);
+        return Promise.resolve({ items: [], total: 0 });
+      }
+      throw new Error(`Unexpected API request: ${path}`);
+    }) as unknown as typeof api);
+
+    renderPersons();
+    await waitFor(() => expect(requests).toHaveLength(1));
+
+    fireEvent.change(screen.getByLabelText('Buscar'), { target: { value: 'Ana Pérez' } });
+    fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'pending' } });
+    fireEvent.change(screen.getByLabelText('Zona'), { target: { value: 'rural' } });
+    fireEvent.change(screen.getByLabelText('Afiliación'), { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar filtros' }));
+
+    await waitFor(() => expect(requests).toHaveLength(2));
+    const params = new URLSearchParams(requests[1].split('?')[1]);
+    expect(params.get('q')).toBe('Ana Pérez');
+    expect(params.get('status')).toBe('pending');
+    expect(params.get('zone')).toBe('rural');
+    expect(params.get('affiliated')).toBe('1');
+    expect(params.get('page')).toBe('1');
+  });
+
+  it('preserves applied search criteria when changing page size and moving forward', async () => {
+    const requests: string[] = [];
+    apiMock.mockImplementation(((path: string) => {
+      if (path === 'person-filter-settings') return Promise.resolve(filterSettings);
+      if (path.startsWith('persons?page=')) {
+        requests.push(path);
+        return Promise.resolve({ items: [], total: 37 });
+      }
+      throw new Error(`Unexpected API request: ${path}`);
+    }) as unknown as typeof api);
+
+    renderPersons();
+    await waitFor(() => expect(requests).toHaveLength(1));
+    fireEvent.change(screen.getByLabelText('Buscar'), { target: { value: 'Ana' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar filtros' }));
+    await waitFor(() => expect(requests).toHaveLength(2));
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filas por página' }), { target: { value: '25' } });
+    await waitFor(() => expect(requests).toHaveLength(3));
+    fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
+    await waitFor(() => expect(requests).toHaveLength(4));
+
+    const params = new URLSearchParams(requests[3].split('?')[1]);
+    expect(params.get('q')).toBe('Ana');
+    expect(params.get('page')).toBe('2');
+    expect(params.get('page_size')).toBe('25');
+  });
+
+  it('offers a retry after the list request fails and renders records after recovery', async () => {
+    let listRequests = 0;
+    apiMock.mockImplementation(((path: string) => {
+      if (path === 'person-filter-settings') return Promise.resolve(filterSettings);
+      if (path.startsWith('persons?page=')) {
+        listRequests += 1;
+        return listRequests === 1
+          ? Promise.reject(new ApiError(503, 'El servicio no está disponible.'))
+          : Promise.resolve({ items: [person], total: 1 });
+      }
+      throw new Error(`Unexpected API request: ${path}`);
+    }) as unknown as typeof api);
+
+    renderPersons();
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar personas' }));
+
+    const list = await screen.findByRole('list', { name: 'Lista de personas' });
+    expect(within(list).getByText('Ana Pérez')).toBeTruthy();
+    expect(listRequests).toBe(2);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });
 
 describe('PersonTable', () => {
