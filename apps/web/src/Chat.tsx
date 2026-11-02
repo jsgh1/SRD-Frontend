@@ -5,6 +5,7 @@ import { Empty, ErrorBox, Loading } from './ui';
 import { formatLocale, localizedLabel, t, useLanguage } from './i18n';
 import { ContactAvatar } from './ContactAvatar';
 import { recordedBlobToWav } from './voiceNote';
+import { mergeMessages, mergeReceipts, withReceipt } from './chatMessageMerge';
 import { Check, ChevronDown, ChevronUp, Download, Eye, FileText, Image as ImageIcon, Mic, Pause, Paperclip, Phone, Pin, Play, Reply, Search, Send, Trash2, Volume2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { Modal } from './ui';
 
@@ -42,24 +43,6 @@ function VoiceNotePlayer({ src, onRequest, loading, label }: {src?: string; onRe
     <div className="chat-voice-timeline"><span aria-hidden="true">{[4,9,14,6,18,11,5,20,12,7,16,10,4,13,19,6,12,8,17,5,15,10,6,12].map((height, index) => <i key={index} className={duration && index / 24 <= current / duration ? 'played' : ''} style={{height}} />)}</span><input type="range" min="0" max={duration || 1} step="0.1" value={Math.min(current, duration || 0)} disabled={!src || !duration} aria-label={t('Avanzar nota de voz')} onChange={event => { if (audio.current) { audio.current.currentTime = Number(event.target.value); setCurrent(audio.current.currentTime); } }} /></div>
     <label className="chat-voice-volume" title={t('Volumen de la nota de voz')}><Volume2 size={17} /><input type="range" min="0" max="1" step="0.05" defaultValue="1" aria-label={t('Volumen de la nota de voz')} onChange={event => { if (audio.current) audio.current.volume = Number(event.target.value); }} /></label>
   </div>;
-}
-
-function withReceipt(message: Message, receipt?: Receipt['items'][number]): Message {
-  return receipt ? { ...message, delivered_at: message.delivered_at ?? receipt.delivered_at, read_at: message.read_at ?? receipt.read_at } : message;
-}
-
-function mergeMessages(current: Message[], incoming: Message[]): Message[] {
-  const byId = new Map(current.map(message => [message.id, message]));
-  for (const message of incoming) {
-    const previous = byId.get(message.id);
-    byId.set(message.id, previous ? withReceipt({ ...previous, ...message }, previous) : message);
-  }
-  return [...byId.values()].sort((a, b) => a.sequence - b.sequence);
-}
-
-function mergeReceipts(current: Message[], receipts: History['receipts']): Message[] {
-  const byId = new Map(receipts.map(receipt => [receipt.id, receipt]));
-  return current.map(message => withReceipt(message, byId.get(message.id)));
 }
 
 function reportAuthorizationLoss(error: unknown) {
