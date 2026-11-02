@@ -12,7 +12,7 @@ Este repositorio concentra las aplicaciones de usuario y sus dependencias. **No 
 | --- | --- | --- |
 | [`apps/web/`](apps/web) | React 19, TypeScript, Vite 7 | Aplicación principal de navegador |
 | [`apps/desktop/`](apps/desktop) | Electron 44, Electron Forge | Cliente Windows que abre la interfaz web del servidor |
-| [`apps/mobile-expo/`](apps/mobile-expo) | React Native 0.86, Expo SDK 57 | Cliente móvil Expo, conexión con servidor SRD |
+| [`apps/mobile-expo/`](apps/mobile-expo) | React Native 0.88, Expo SDK 58 | Cliente móvil Expo, conexión con servidor SRD |
 | [`apps/mobile/`](apps/mobile) | React Native 0.87, Metro, Jest | Proyecto móvil React Native separado del cliente Expo |
 | [`.github/workflows/`](.github/workflows) | GitHub Actions | Validación automática del build web |
 
