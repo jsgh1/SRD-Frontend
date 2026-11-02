@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from './api';
 import { setLanguage } from './i18n';
@@ -221,5 +221,56 @@ describe('Chat conversation history', () => {
     expect(await screen.findByText('Historial recuperado')).toBeTruthy();
     expect(attempts.get(first.id)).toBe(2);
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('merges duplicate messages and receipt updates without losing earlier receipts', async () => {
+    const initial = [
+      testMessage('message-1', 1, 'user-1', 'Texto original', {
+        delivered_at: '2026-11-01T12:01:00Z', read_at: null,
+      }),
+      testMessage('message-2', 2, 'user-1', 'Mensaje sin cambios', {
+        delivered_at: '2026-11-01T12:02:00Z', read_at: null,
+      }),
+    ];
+    const attempts = configureConversationHistories([first], { [first.id]: initial }, async (_conversationId, count) => {
+      if (count === 1) return { items: initial, next_before: null, next_after: null, receipts: [] };
+      return {
+        items: [
+          testMessage('message-1', 1, 'user-1', 'Texto actualizado', { delivered_at: null, read_at: null }),
+          testMessage('message-3', 3, 'user-1', 'Mensaje nuevo'),
+        ],
+        next_before: null,
+        next_after: null,
+        receipts: [
+          { id: 'message-1', delivered_at: null, read_at: '2026-11-01T12:04:00Z' },
+          { id: 'message-2', delivered_at: null, read_at: null },
+        ],
+      };
+    });
+
+    const { container } = renderChat();
+    await screen.findByRole('button', { name: /Camila Prueba/ });
+    fireEvent.click(screen.getByRole('button', { name: /Camila Prueba/ }));
+    await screen.findByText('Texto original');
+
+    await act(async () => {
+      document.dispatchEvent(new Event('srd-chat-change'));
+    });
+
+    await screen.findByText('Mensaje nuevo');
+    const rows = Array.from(container.querySelectorAll('.chat-messages > li'));
+    expect(rows).toHaveLength(3);
+    expect(rows.map(row => row.id)).toEqual([
+      'chat-message-message-1',
+      'chat-message-message-2',
+      'chat-message-message-3',
+    ]);
+    expect(rows[0].textContent).toContain('Texto actualizado');
+    expect(rows[0].textContent).not.toContain('Texto original');
+    expect(rows[0].querySelector('.chat-bubble-meta span')?.textContent).toBe('Leído');
+    expect(rows[1].textContent).toContain('Mensaje sin cambios');
+    expect(rows[1].querySelector('.chat-bubble-meta span')?.textContent).toBe('Entregado');
+    expect(rows[2].querySelector('.chat-bubble-meta span')?.textContent).toBe('Enviado');
+    expect(attempts.get(first.id)).toBe(2);
   });
 });
