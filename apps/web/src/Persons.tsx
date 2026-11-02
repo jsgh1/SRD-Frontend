@@ -16,6 +16,7 @@ import { PersonFilters, type ExtraFilter } from './PersonFilters';
 import { type PositionCatalog } from './PersonPositions';
 import { PersonPhotos } from './PersonPhotos';
 import { PersonForm } from './PersonForm';
+import { buildPersonSearchParams, emptyPersonBaseFilters, type PersonBaseFilters } from './PersonSearchParams';
 export { PersonForm } from './PersonForm';
 import type { FilterSettings } from './PersonFilterSettings';
 import { ExportFilename, addExportFilename, exportFilenameReady, safeXlsxFilename, type ExportFilenameChoice } from './ExportFilename';
@@ -318,10 +319,7 @@ export function PersonDetail({
     </Modal>
   );
 }
-type BaseFilters = { document_type: string; gender: string; descriptive_role: string; position_code: string; birth_date_from: string; birth_date_to: string; registered_from: string; registered_to: string };
-const emptyBaseFilters: BaseFilters = { document_type: '', gender: '', descriptive_role: '', position_code: '', birth_date_from: '', birth_date_to: '', registered_from: '', registered_to: '' };
-
-function BasePersonFilters({ value, onChange, visible }: { value: BaseFilters; onChange: (value: BaseFilters) => void; visible: string[] }) {
+function BasePersonFilters({ value, onChange, visible }: { value: PersonBaseFilters; onChange: (value: PersonBaseFilters) => void; visible: string[] }) {
   const [catalog, setCatalog] = useState<PositionCatalog>(), [error, setError] = useState<unknown>();
   const [revision, setRevision] = useState(0);
   useEffect(() => {
@@ -331,11 +329,11 @@ function BasePersonFilters({ value, onChange, visible }: { value: BaseFilters; o
     api<PositionCatalog>('person-positions').then(data => { if (active) setCatalog(data); }).catch(e => { if (active) setError(e); });
     return () => { active = false; };
   }, [revision, visible]);
-  const select = (key: keyof BaseFilters, label: string, options: Record<string, string>) => visible.includes(key) ? <label>{t(label)}
+  const select = (key: keyof PersonBaseFilters, label: string, options: Record<string, string>) => visible.includes(key) ? <label>{t(label)}
     <select value={value[key]} onChange={e => onChange({ ...value, [key]: e.target.value })}>
       <option value="">{t('Todos')}</option>{Object.entries(options).map(([code, name]) => <option key={code} value={code}>{t(name)}</option>)}
     </select></label> : null;
-  if (!Object.keys(emptyBaseFilters).some(key=>visible.includes(key)) && !visible.includes('birth_date') && !visible.includes('registered_at')) return null;
+  if (!Object.keys(emptyPersonBaseFilters).some(key=>visible.includes(key)) && !visible.includes('birth_date') && !visible.includes('registered_at')) return null;
   return <fieldset className="person-extra-filters"><legend>{t('Más filtros de la ficha')}</legend>
     <div className="person-extra-filter">
       {select('document_type', 'Tipo de documento', documents)}
@@ -372,7 +370,7 @@ export function Persons({
     [status, setStatus] = useState(""),
     [zone, setZone] = useState(""),
     [affiliated, setAffiliated] = useState(""),
-    [baseFilters, setBaseFilters] = useState<BaseFilters>(emptyBaseFilters),
+    [baseFilters, setBaseFilters] = useState<PersonBaseFilters>(emptyPersonBaseFilters),
     [customFilters, setCustomFilters] = useState<ExtraFilter[]>([]),
     [advancedOpen, setAdvancedOpen] = useState(false),
     [page, setPage] = useState(1),
@@ -415,7 +413,7 @@ export function Persons({
     if(mode !== 'list') return;
     let active=true;
     setFilterSettings(undefined); setFilterError(undefined); setApplied(''); setPage(1);
-    setStatus(''); setZone(''); setAffiliated(''); setBaseFilters(emptyBaseFilters); setCustomFilters([]);
+    setStatus(''); setZone(''); setAffiliated(''); setBaseFilters(emptyPersonBaseFilters); setCustomFilters([]);
     api<FilterSettings>('person-filter-settings').then(value=>{if(active)setFilterSettings(value);}).catch(e=>{if(active)setFilterError(e);});
     return ()=>{active=false;};
   },[mode,filterRevision]);
@@ -527,25 +525,7 @@ export function Persons({
     setError(null);
     setPage(1);
     if (mode === "list") {
-      const criteria={status,zone,affiliated,...baseFilters};
-      const params = new URLSearchParams({ q: query });
-      Object.entries(criteria).forEach(([key,value])=>{if(filterSettings?.base.includes(key))params.set(key,value);});
-      if(filterSettings?.base.includes('birth_date') && baseFilters.birth_date_from && baseFilters.birth_date_to) {
-        params.set('birth_date_from',baseFilters.birth_date_from);
-        params.set('birth_date_to',baseFilters.birth_date_to);
-      }
-      if(filterSettings?.base.includes('registered_at') && baseFilters.registered_from && baseFilters.registered_to) {
-        params.set('registered_from',baseFilters.registered_from);
-        params.set('registered_to',baseFilters.registered_to);
-      }
-      customFilters.forEach((filter, index) => {
-        params.set(`custom_filters[${index}][field_id]`, filter.field_id);
-        params.set(`custom_filters[${index}][value]`, filter.value);
-        if (filter.operator === 'between') {
-          params.set(`custom_filters[${index}][operator]`, 'between');
-          params.set(`custom_filters[${index}][value_to]`, filter.value_to ?? '');
-        }
-      });
+      const params = buildPersonSearchParams({ query, status, zone, affiliated, baseFilters, customFilters, filterSettings });
       setApplied(params.toString());
       setRefresh(value => value + 1);
     } else {
@@ -684,7 +664,7 @@ export function Persons({
             <Search size={18} />
             {t(mode === "list" ? "Aplicar filtros" : "Consultar")}
           </button>
-          {mode === 'list' && <button type="button" onClick={() => { setQuery(''); setStatus(''); setZone(''); setAffiliated(''); setBaseFilters(emptyBaseFilters); setCustomFilters([]); setAdvancedOpen(false); setPage(1); setApplied(''); setRefresh(value => value + 1); }}>{t('Limpiar filtros')}</button>}
+          {mode === 'list' && <button type="button" onClick={() => { setQuery(''); setStatus(''); setZone(''); setAffiliated(''); setBaseFilters(emptyPersonBaseFilters); setCustomFilters([]); setAdvancedOpen(false); setPage(1); setApplied(''); setRefresh(value => value + 1); }}>{t('Limpiar filtros')}</button>}
         </form>
         {mode === 'lookup' && busy ? <Loading /> : result ? (
           <>
