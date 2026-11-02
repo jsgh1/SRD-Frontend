@@ -172,7 +172,7 @@ function App() {
 
   useEffect(() => {
     if (resendAfter <= 0) return;
-    const timer = setTimeout(() => setResendAfter(value => Math.max(0, value - 1)), 1000);
+    const timer = setTimeout(() => setResendAfter(0), resendAfter * 1000);
     return () => clearTimeout(timer);
   }, [resendAfter]);
 
@@ -610,7 +610,18 @@ function App() {
           <View style={styles.card}>
             <Field label="Código de verificación" value={verification} onChangeText={setVerification} placeholder="000000" keyboardType="number-pad" maxLength={6} />
             <Action label="Verificar y entrar" onPress={verify} disabled={busy} />
-            <Pressable onPress={resend} disabled={busy || resendAfter > 0}><Text style={styles.link}>{resendAfter > 0 ? `Reenviar en ${resendAfter} s` : 'Reenviar código'}</Text></Pressable>
+            <Pressable
+              onPress={resend}
+              disabled={busy || resendAfter > 0}
+              accessibilityRole="button"
+              accessibilityLabel="Reenviar código"
+              accessibilityState={{disabled: busy || resendAfter > 0}}
+              accessibilityHint={resendAfter > 0 ? 'Espera a que termine el periodo de espera para solicitar otro código.' : undefined}
+            >
+              <Text style={styles.link} accessible={false} importantForAccessibility="no">
+                {resendAfter > 0 ? 'Podrás reenviar cuando termine la espera.' : 'Reenviar código'}
+              </Text>
+            </Pressable>
             <Pressable onPress={cancel} disabled={busy}><Text style={styles.link}>Volver al inicio de sesión</Text></Pressable>
           </View>
         </>}
@@ -778,7 +789,7 @@ function App() {
 
 type FieldProps = React.ComponentProps<typeof TextInput> & {label: string};
 function Field({label, ...props}: FieldProps) {
-  return <View style={styles.field}><Text style={styles.label}>{label}</Text><TextInput style={styles.input} placeholderTextColor="#82979b" {...props} /></View>;
+  return <View style={styles.field}><Text style={styles.label}>{label}</Text><TextInput accessibilityLabel={label} style={styles.input} placeholderTextColor="#82979b" {...props} /></View>;
 }
 function Action({label, onPress, disabled, secondary = false}: {label: string; onPress: () => void; disabled?: boolean; secondary?: boolean}) {
   return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[styles.button, secondary && styles.buttonSecondary, disabled && styles.disabled]}><Text style={[styles.buttonText, secondary && styles.buttonTextSecondary]}>{label}</Text></Pressable>;
