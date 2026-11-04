@@ -115,8 +115,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   Object.defineProperty(document, 'hidden', { configurable: true, value: originalDocumentHidden });
-  if (originalMediaDevices === undefined) delete (navigator as Partial<Navigator>).mediaDevices;
-  else Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: originalMediaDevices });
+  Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: originalMediaDevices });
   setLanguage('es');
 });
 

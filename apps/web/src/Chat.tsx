@@ -4,8 +4,8 @@ import { ApiError, api, roleNames } from './api';
 import { Empty, ErrorBox, Loading } from './ui';
 import { formatLocale, localizedLabel, t, useLanguage } from './i18n';
 import { ContactAvatar } from './ContactAvatar';
-import { recordedBlobToWav } from './voiceNote';
 import { mergeMessages, mergeReceipts, withReceipt } from './chatMessageMerge';
+import { useChatVoiceRecorder } from './useChatVoiceRecorder';
 import { Check, ChevronDown, ChevronUp, Download, Eye, FileText, Image as ImageIcon, Mic, Pause, Paperclip, Phone, Pin, Play, Reply, Search, Send, Trash2, Volume2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { Modal } from './ui';
 
@@ -65,11 +65,6 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
   const [filePreview, setFilePreview] = useState<string>();
   const [filePreviewError, setFilePreviewError] = useState(false);
   const [audioPlayback, setAudioPlayback] = useState<{ messageId: string; url: string }>();
-  const [recording, setRecording] = useState(false);
-  const [recordPaused, setRecordPaused] = useState(false);
-  const [recordSeconds, setRecordSeconds] = useState(0);
-  const [waveform, setWaveform] = useState<number[]>(() => Array(28).fill(0));
-  const [processingAudio, setProcessingAudio] = useState(false);
   const [downloading, setDownloading] = useState<string>();
   const [pendingId, setPendingId] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -104,20 +99,12 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
   const readingIds = useRef(new Set<string>());
   const messagesRef = useRef<Message[]>([]);
   const latestSequence = useRef(0);
-  const recorderRef = useRef<MediaRecorder | undefined>(undefined);
-  const streamRef = useRef<MediaStream | undefined>(undefined);
-  const recordTimeoutRef = useRef<number | undefined>(undefined);
-  const recordIntervalRef = useRef<number | undefined>(undefined);
-  const waveIntervalRef = useRef<number | undefined>(undefined);
-  const audioContextRef = useRef<AudioContext | undefined>(undefined);
-  const recordStartedRef = useRef(0);
-  const pausedAtRef = useRef(0);
-  const pauseDurationRef = useRef(0);
-  const recordGenerationRef = useRef(0);
   const draftGenerationRef = useRef(0);
-  const requestingMicRef = useRef(false);
   const selectedIdRef = useRef(selected?.id);
   selectedIdRef.current = selected?.id;
+  const { recording, recordPaused, recordSeconds, waveform, processingAudio, startRecording, stopRecording, toggleRecordPause } = useChatVoiceRecorder({
+    conversationId: selected?.id, busy, setError, setFile, setPendingId,
+  });
 
   useEffect(() => {
     onVoiceSelection(undefined);
@@ -230,22 +217,7 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
         .finally(() => imageLoadingRef.current.delete(message.id));
     }
   }, [selected?.id, messages]);
-  useEffect(() => {
-    setAudioPlayback(undefined); setRecording(false); setProcessingAudio(false);
-    return () => {
-      recordGenerationRef.current++;
-      if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-        recorderRef.current.onstop = null;
-        recorderRef.current.stop();
-      }
-      streamRef.current?.getTracks().forEach(track => track.stop());
-      clearTimeout(recordTimeoutRef.current);
-      clearInterval(recordIntervalRef.current);
-      clearInterval(waveIntervalRef.current);
-      void audioContextRef.current?.close(); audioContextRef.current = undefined;
-      recorderRef.current = undefined; streamRef.current = undefined;
-    };
-  }, [selected?.id]);
+  useEffect(() => { setAudioPlayback(undefined); }, [selected?.id]);
 
   useEffect(() => {
     let active = true;
@@ -459,120 +431,6 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
       target?.classList.add('chat-jump-highlight');
       window.setTimeout(() => target?.classList.remove('chat-jump-highlight'), 1800);
     }, 50);
-  }
-
-  function releaseMicrophone() {
-    clearTimeout(recordTimeoutRef.current);
-    clearInterval(recordIntervalRef.current);
-    clearInterval(waveIntervalRef.current);
-    void audioContextRef.current?.close(); audioContextRef.current = undefined;
-    streamRef.current?.getTracks().forEach(track => track.stop());
-    streamRef.current = undefined;
-    recorderRef.current = undefined;
-    setRecording(false);
-    setRecordPaused(false);
-  }
-
-  function toggleRecordPause() {
-    const recorder = recorderRef.current;
-    if (!recorder) return;
-    if (recorder.state === 'recording') { recorder.pause(); pausedAtRef.current = Date.now(); setRecordPaused(true); }
-    else if (recorder.state === 'paused') {
-      pauseDurationRef.current += Date.now() - pausedAtRef.current;
-      recorder.resume(); setRecordPaused(false);
-    }
-  }
-
-  function stopRecording(discard = false) {
-    const recorder = recorderRef.current;
-    if (!recorder) return;
-    if (discard) recorder.onstop = null;
-    if (recorder.state !== 'inactive') recorder.stop();
-    if (discard) releaseMicrophone();
-  }
-
-  useEffect(() => {
-    const discardHiddenRecording = () => {
-      if (!document.hidden || (!recorderRef.current && !requestingMicRef.current)) return;
-      recordGenerationRef.current++;
-      stopRecording(true);
-      setProcessingAudio(false);
-    };
-    document.addEventListener('visibilitychange', discardHiddenRecording);
-    return () => document.removeEventListener('visibilitychange', discardHiddenRecording);
-  }, []);
-
-  async function startRecording() {
-    if (!selected || recording || processingAudio || busy || requestingMicRef.current) return;
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setError(new Error(t('Este navegador no permite grabar notas de voz.'))); return;
-    }
-    requestingMicRef.current = true;
-    const generation = recordGenerationRef.current;
-    const conversation = selected.id;
-    let stream: MediaStream | undefined;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
-      if (generation !== recordGenerationRef.current || selectedIdRef.current !== conversation) {
-        stream.getTracks().forEach(track => track.stop()); return;
-      }
-      const recorder = new MediaRecorder(stream);
-      const parts: Blob[] = [];
-      let recordedBytes = 0;
-      recorder.ondataavailable = event => {
-        if (!event.data.size) return;
-        recordedBytes += event.data.size;
-        if (recordedBytes > 10 * 1024 * 1024) {
-          stopRecording(true);
-          setError(new Error(t('La nota de voz supera el límite de 10 MB.')));
-        } else parts.push(event.data);
-      };
-      recorder.onerror = () => {
-        stopRecording(true);
-        setError(new Error(t('No se pudo grabar la nota de voz.')));
-      };
-      recorder.onstop = () => {
-        releaseMicrophone();
-        if (generation !== recordGenerationRef.current || selectedIdRef.current !== conversation) return;
-        setProcessingAudio(true);
-        void recordedBlobToWav(new Blob(parts, { type: recorder.mimeType })).then(wav => {
-          if (generation === recordGenerationRef.current && selectedIdRef.current === conversation) {
-            setFile(wav); setPendingId(undefined); setError(undefined);
-          }
-        }).catch(() => {
-          if (generation === recordGenerationRef.current) setError(new Error(t('No se pudo preparar la nota de voz.')));
-        }).finally(() => { if (generation === recordGenerationRef.current) setProcessingAudio(false); });
-      };
-      recorderRef.current = recorder; streamRef.current = stream;
-      setFile(undefined); setPendingId(undefined); setError(undefined); setRecordSeconds(0); setWaveform(Array(28).fill(0)); setRecordPaused(false);
-      recorder.start(1000);
-      setRecording(true);
-      recordStartedRef.current = Date.now(); pauseDurationRef.current = 0; pausedAtRef.current = 0;
-      recordIntervalRef.current = window.setInterval(() => {
-        const elapsed = Math.floor((Date.now() - recordStartedRef.current - pauseDurationRef.current
-          - (recorder.state === 'paused' ? Date.now() - pausedAtRef.current : 0)) / 1000);
-        setRecordSeconds(elapsed);
-        if (elapsed >= 120) stopRecording();
-      }, 250);
-      if (typeof AudioContext !== 'undefined') {
-        try {
-          const context = new AudioContext();
-          audioContextRef.current = context;
-          const source = context.createMediaStreamSource(stream);
-          const analyser = context.createAnalyser(); analyser.fftSize = 512; source.connect(analyser);
-          const samples = new Uint8Array(analyser.fftSize);
-          waveIntervalRef.current = window.setInterval(() => {
-            if (recorder.state !== 'recording') return;
-            analyser.getByteTimeDomainData(samples);
-            const rms = Math.sqrt(samples.reduce((sum, item) => sum + ((item - 128) / 128) ** 2, 0) / samples.length);
-            setWaveform(current => [...current.slice(1), Math.min(1, rms * 5)]);
-          }, 110);
-        } catch { /* Recording remains available when waveform analysis is unsupported. */ }
-      }
-    } catch {
-      stream?.getTracks().forEach(track => track.stop());
-      setError(new Error(t('No se pudo acceder al micrófono.')));
-    } finally { requestingMicRef.current = false; }
   }
 
   async function playVoice(message: Message) {
