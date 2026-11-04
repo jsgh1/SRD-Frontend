@@ -14,6 +14,11 @@ export default defineConfig({
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["src/**/*.test.{ts,tsx}", "src/main.tsx"],
       thresholds: {
+        // Whole-web floors are set below the measured P40 baseline to guard regressions as coverage grows.
+        statements: 20,
+        branches: 19,
+        functions: 16,
+        lines: 24,
         // Guard the initial tested surfaces while broad application coverage grows.
         "src/api.ts": { statements: 75, branches: 55, functions: 80, lines: 90, perFile: true },
         "src/ui.tsx": { statements: 55, branches: 70, functions: 55, lines: 60, perFile: true },
