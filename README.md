@@ -12,11 +12,10 @@ Este repositorio concentra las aplicaciones de usuario y sus dependencias. **No 
 | --- | --- | --- |
 | [`apps/web/`](apps/web) | React 19, TypeScript, Vite 7 | Aplicación principal de navegador |
 | [`apps/desktop/`](apps/desktop) | Electron 44, Electron Forge | Cliente Windows que abre la interfaz web del servidor |
-| [`apps/mobile-expo/`](apps/mobile-expo) | React Native 0.88, Expo SDK 58 | Cliente móvil Expo, conexión con servidor SRD |
-| [`apps/mobile/`](apps/mobile) | React Native 0.87, Metro, Jest | Proyecto móvil React Native separado del cliente Expo |
-| [`.github/workflows/`](.github/workflows) | GitHub Actions | Validación automática del build web |
+| [`apps/mobile/`](apps/mobile) | React Native 0.87, Android nativo, Metro, Jest | Cliente móvil oficial para Android |
+| [`.github/workflows/`](.github/workflows) | GitHub Actions | Validación de web, escritorio y cliente móvil nativo |
 
-> `mobile/` y `mobile-expo/` son **dos proyectos distintos**, con versiones y comandos propios. No se deben mezclar sus `node_modules` ni asumir que uno sustituye automáticamente al otro.
+> Este repositorio mantiene un solo cliente móvil activo: `apps/mobile`, desarrollado con React Native CLI.
 
 ## 2. Interfaz web
 
@@ -88,19 +87,7 @@ npm run make
 
 El escritorio **depende de un servidor SRD disponible**: no almacena una segunda copia independiente del Backend Laravel. Consulta `server-url.cjs` antes de publicar instaladores o modificar dominios.
 
-## 4. Clientes móviles
-
-### Expo (`apps/mobile-expo`)
-
-```powershell
-cd apps/mobile-expo
-npm ci
-npx expo start
-# O, para Android con el entorno preparado:
-npm run android
-```
-
-Incluye módulos de agenda, notificaciones, perfil, cambio de organización y una capa API en `src/api.ts`. Configurar una URL alcanzable desde el teléfono o emulador: **`localhost` dentro del móvil no es el computador que ejecuta Docker**.
+## 4. Cliente móvil
 
 ### React Native CLI (`apps/mobile`)
 
@@ -113,14 +100,14 @@ npm start
 npm run android
 ```
 
-Requiere herramientas nativas adicionales. El diseño y las funciones de estos dos clientes no deben darse por idénticos sin pruebas en dispositivo.
+Requiere Node.js, Android SDK y un emulador o dispositivo configurado. La aplicación se conecta al Gateway de SRD mediante el origen definido para cada entorno; usa una dirección accesible desde el teléfono o emulador y no `localhost` del dispositivo.
 
 ## 5. Arquitectura de integración
 
 ```text
    React Web ────────────┐
    Electron → Web ───────┼── HTTP(S) ── Nginx ── /api/v1 ── Laravel Gateway
-   Expo / React Native ──┘                                 │
+   React Native Android ──┘                                 │
                                            Identity · Records · Files · ...
                                                          │
                                                  MySQL por servicio
@@ -129,7 +116,7 @@ Requiere herramientas nativas adicionales. El diseño y las funciones de estos d
 - **Web:** peticiones relativas `/api/v1/...`, mismo origen y cookies de sesión.
 - **Chat:** cliente de tiempo real con Reverb/WebSocket cuando está disponible; requiere proxy y configuración del servidor.
 - **Desktop:** ventana Electron conectada al SRD web desplegado.
-- **Mobile:** consumen endpoints del Backend; conexión y permisos de red se configuran por entorno.
+- **Mobile:** consume endpoints del Backend; el origen de API se configura por entorno y el Backend aplica los permisos.
 - **Multi‑tenant:** después de autenticarse, la sesión incluye el contexto de junta permitido; los accesos entre organizaciones no se resuelven en el navegador.
 
 ## 6. ¿Cómo levantar toda la plataforma con Docker?
