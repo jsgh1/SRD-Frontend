@@ -96,6 +96,7 @@ async function navigation() {
 
 beforeEach(() => {
   apiMock.mockReset();
+  localStorage.removeItem('srd-theme');
   window.history.replaceState({}, '', '/');
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   setLanguage('es');
@@ -103,6 +104,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  localStorage.removeItem('srd-theme');
   window.history.replaceState({}, '', '/');
   setLanguage('es');
 });
@@ -160,6 +162,39 @@ describe('navigation visibility by membership role', () => {
 });
 
 describe('settings behavior', () => {
+  it('keeps profile presence and theme changes persistent and restores focus on Escape', async () => {
+    configureSession('registrar');
+    apiMock.mockImplementation(async (path: string, method?: string, body?: unknown) => {
+      if (path === 'me') return activePrincipal as never;
+      if (path === 'folder-access') return { can_read: false } as never;
+      if (path === 'planilla-settings') return { logo_data: null } as never;
+      if (path === 'profile' && method === 'PATCH') {
+        activePrincipal = {
+          ...activePrincipal,
+          user: { ...activePrincipal.user, ...(body as Partial<Principal['user']>) },
+        };
+        return {} as never;
+      }
+      throw new Error(`Unexpected API request: ${method ?? 'GET'} ${path}`);
+    });
+    render(<App />);
+
+    const trigger = await screen.findByRole('button', { name: 'Abrir perfil de Persona de prueba' });
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'away' } });
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('profile', 'PATCH', expect.objectContaining({ presence: 'away' })));
+    expect((screen.getByLabelText('Estado') as HTMLSelectElement).value).toBe('away');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar a tema oscuro' }));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('profile', 'PATCH', expect.objectContaining({ theme: 'dark', presence: 'away' })));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('dark'));
+
+    fireEvent.keyDown(trigger.closest('.profile-anchor')!, { key: 'Escape' });
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it('saves profile preferences, reloads the account, and reports success', async () => {
     configureSession('admin');
     apiMock.mockImplementation(async (path: string, method?: string, body?: unknown) => {
