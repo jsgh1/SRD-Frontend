@@ -40,7 +40,19 @@ vi.mock('./FolderAccessSettings', () => ({ FolderAccessSettings: () => null }));
 vi.mock('./Notifications', () => ({ Notifications: () => null }));
 vi.mock('./Downloads', () => ({ Downloads: () => null }));
 vi.mock('./Memberships', () => ({ Memberships: () => null, InvitationAcceptance: () => null }));
-vi.mock('./ui', () => ({ ErrorBox: () => null, Loading: () => null, Modal: () => null }));
+vi.mock('./ui', () => ({
+  ErrorBox: ({ error }: { error: unknown }) => error
+    ? <div role="alert">{error instanceof Error ? error.message : String(error)}</div>
+    : null,
+  Loading: () => null,
+  Modal: ({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) => (
+    <section role="dialog" aria-label={title}>
+      <h2>{title}</h2>
+      {children}
+      <button type="button" aria-label="Cerrar diálogo" onClick={onClose} />
+    </section>
+  ),
+}));
 vi.mock('./Persons', () => ({ Persons: () => null, PersonForm: () => null }));
 
 const apiMock = vi.mocked(api);
@@ -84,12 +96,15 @@ async function navigation() {
 
 beforeEach(() => {
   apiMock.mockReset();
+  localStorage.removeItem('srd-theme');
   window.history.replaceState({}, '', '/');
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   setLanguage('es');
 });
 
 afterEach(() => {
   cleanup();
+  localStorage.removeItem('srd-theme');
   window.history.replaceState({}, '', '/');
   setLanguage('es');
 });
@@ -143,5 +158,153 @@ describe('navigation visibility by membership role', () => {
     folderAccessGranted = false;
     fireEvent.focus(window);
     await waitFor(() => expect(nav.queryByRole('button', { name: 'Carpeta' })).toBeNull());
+  });
+});
+
+describe('settings behavior', () => {
+  it('keeps profile presence and theme changes persistent and restores focus on Escape', async () => {
+    configureSession('registrar');
+    apiMock.mockImplementation(async (path: string, method?: string, body?: unknown) => {
+      if (path === 'me') return activePrincipal as never;
+      if (path === 'folder-access') return { can_read: false } as never;
+      if (path === 'planilla-settings') return { logo_data: null } as never;
+      if (path === 'profile' && method === 'PATCH') {
+        activePrincipal = {
+          ...activePrincipal,
+          user: { ...activePrincipal.user, ...(body as Partial<Principal['user']>) },
+        };
+        return {} as never;
+      }
+      throw new Error(`Unexpected API request: ${method ?? 'GET'} ${path}`);
+    });
+    render(<App />);
+
+    const trigger = await screen.findByRole('button', { name: 'Abrir perfil de Persona de prueba' });
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'away' } });
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('profile', 'PATCH', expect.objectContaining({ presence: 'away' })));
+    expect((screen.getByLabelText('Estado') as HTMLSelectElement).value).toBe('away');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar a tema oscuro' }));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('profile', 'PATCH', expect.objectContaining({ theme: 'dark', presence: 'away' })));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('dark'));
+
+    fireEvent.keyDown(trigger.closest('.profile-anchor')!, { key: 'Escape' });
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('saves profile preferences, reloads the account, and reports success', async () => {
+    configureSession('admin');
+    apiMock.mockImplementation(async (path: string, method?: string, body?: unknown) => {
+      if (path === 'me') return activePrincipal as never;
+      if (path === 'folder-access') return { can_read: false } as never;
+      if (path === 'planilla-settings') return { logo_data: null } as never;
+      if (path === 'profile' && method === 'PATCH') {
+        activePrincipal = {
+          ...activePrincipal,
+          user: { ...activePrincipal.user, ...(body as Partial<Principal['user']>) },
+        };
+        return {} as never;
+      }
+      throw new Error(`Unexpected API request: ${method ?? 'GET'} ${path}`);
+    });
+    render(<App />);
+
+    fireEvent.click((await navigation()).getByRole('button', { name: 'Configuración' }));
+    await screen.findByRole('heading', { name: 'Mi perfil' });
+    const profile = document.getElementById('settings-profile');
+    expect(profile).toBeTruthy();
+    fireEvent.change(within(profile!).getByLabelText('Nombre'), { target: { value: 'Ana Actualizada' } });
+    fireEvent.change(within(profile!).getByLabelText('Tema'), { target: { value: 'dark' } });
+    fireEvent.change(within(profile!).getByLabelText('Idioma'), { target: { value: 'en' } });
+    fireEvent.submit(within(profile!).getByRole('button', { name: 'Guardar perfil' }).closest('form')!);
+
+    expect(await screen.findByRole('status')).toBeTruthy();
+    expect(screen.getByText('Changes saved.')).toBeTruthy();
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(apiMock).toHaveBeenCalledWith('profile', 'PATCH', expect.objectContaining({
+      name: 'Ana Actualizada',
+      theme: 'dark',
+      language: 'en',
+    }));
+    expect(apiMock).toHaveBeenCalledWith('me');
+  });
+
+  it('shows and hides settings sections according to the active role', async () => {
+    configureSession('viewer');
+    const viewer = render(<App />);
+    fireEvent.click((await navigation()).getByRole('button', { name: 'Configuración' }));
+    await screen.findByRole('heading', { name: 'Mi perfil' });
+    expect(screen.queryByRole('link', { name: 'Acceso y permisos' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Identidad de la junta' })).toBeNull();
+    viewer.unmount();
+
+    configureSession('admin');
+    render(<App />);
+    fireEvent.click((await navigation()).getByRole('button', { name: 'Configuración' }));
+    expect(await screen.findByRole('link', { name: 'Acceso y permisos' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Identidad de la junta' })).toBeTruthy();
+  });
+
+  it('loads and accepts another organization’s terms before switching context', async () => {
+    configureSession('admin');
+    const destination = {
+      ...activePrincipal.organization,
+      id: 'organization-2',
+      code: 'junta-dos',
+      name: 'Junta destino',
+      terms: { id: 'terms-destination', version: 2, body: 'Términos de destino suficientemente largos.', body_en: 'Destination terms are long enough.' },
+    };
+    apiMock.mockImplementation(async (path: string, method?: string, body?: unknown) => {
+      if (path === 'me') return activePrincipal as never;
+      if (path === 'folder-access') return { can_read: false } as never;
+      if (path === 'planilla-settings') return { logo_data: null } as never;
+      if (path === 'organizations/junta-dos') return destination as never;
+      if (path === 'auth/switchOrganization' && method === 'POST') {
+        activePrincipal = { ...activePrincipal, organization: destination };
+        return {} as never;
+      }
+      throw new Error(`Unexpected API request: ${method ?? 'GET'} ${path}`);
+    });
+    render(<App />);
+
+    fireEvent.click((await navigation()).getByRole('button', { name: 'Configuración' }));
+    await screen.findByRole('heading', { name: 'Cambiar de junta' });
+    fireEvent.change(screen.getByLabelText('Código de la junta'), { target: { value: 'junta-dos' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar términos' }));
+
+    const terms = await screen.findByRole('dialog', { name: 'Términos de Junta destino' });
+    expect(within(terms).getByText('Términos de destino suficientemente largos.')).toBeTruthy();
+    fireEvent.click(within(terms).getByRole('button', { name: 'Aceptar y cambiar de junta' }));
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('auth/switchOrganization', 'POST', {
+      organization_code: 'junta-dos',
+      terms_version_id: 'terms-destination',
+      accepted: true,
+    }));
+    expect(await screen.findByText('Junta destino')).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'Términos de Junta destino' })).toBeNull();
+  });
+
+  it('surfaces profile-save errors and releases the busy state', async () => {
+    configureSession('registrar');
+    apiMock.mockImplementation(async (path: string, method?: string) => {
+      if (path === 'me') return activePrincipal as never;
+      if (path === 'folder-access') return { can_read: false } as never;
+      if (path === 'planilla-settings') return { logo_data: null } as never;
+      if (path === 'profile' && method === 'PATCH') throw new Error('El perfil no pudo guardarse.');
+      throw new Error(`Unexpected API request: ${method ?? 'GET'} ${path}`);
+    });
+    render(<App />);
+
+    fireEvent.click((await navigation()).getByRole('button', { name: 'Configuración' }));
+    await screen.findByRole('heading', { name: 'Mi perfil' });
+    const profile = document.getElementById('settings-profile')!;
+    fireEvent.submit(within(profile).getByRole('button', { name: 'Guardar perfil' }).closest('form')!);
+
+    expect((await screen.findByRole('alert')).textContent).toContain('El perfil no pudo guardarse.');
+    expect((within(profile).getByRole('button', { name: 'Guardar perfil' }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
