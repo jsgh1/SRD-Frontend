@@ -7,16 +7,17 @@ import { ContactAvatar } from './ContactAvatar';
 import { mergeMessages, mergeReceipts, withReceipt } from './chatMessageMerge';
 import { useChatVoiceRecorder } from './useChatVoiceRecorder';
 import { useChatRealtime } from './useChatRealtime';
+import { useChatDraft } from './useChatDraft';
 import { ChatConversationList } from './ChatConversationList';
-import { ChatMessageList, VoiceNotePlayer } from './ChatMessageList';
+import { ChatMessageList } from './ChatMessageList';
+import { ChatComposer } from './ChatComposer';
 import { activityLabels, presenceLabels, type ChatAttachment, type Conversation, type Message } from './chatTypes';
-import { Check, ChevronDown, Download, Eye, FileText, Image as ImageIcon, Mic, Pause, Paperclip, Phone, Pin, Play, Reply, Search, Send, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChevronDown, Download, Eye, Phone, Pin, Reply, Search, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { Modal } from './ui';
 
 type ConversationPage = { items: Conversation[]; page: number; page_size: number; total: number };
 type History = { items: Message[]; next_before: number | null; next_after: number | null; removed_ids?: string[]; receipts: Pick<Message, 'id' | 'delivered_at' | 'read_at'>[] };
 type Receipt = { items: Pick<Message, 'id' | 'delivered_at' | 'read_at'>[] };
-const clockLabel = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
 export function Chat({ userId, conversationId, onStarted, onOpened, selfId, organizationId, onContacts, onVoiceSelection }: { userId?: string; conversationId?: string; onStarted: () => void; onOpened: () => void; selfId: string; organizationId: string; onContacts: () => void; onVoiceSelection: (value?: { id: string; name: string }) => void }) {
   useLanguage();
@@ -28,20 +29,14 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
   const [selected, setSelected] = useState<Conversation>();
   const [messages, setMessages] = useState<Message[]>([]);
   const [before, setBefore] = useState<number | null>(null);
-  const [body, setBody] = useState('');
-  const [file, setFile] = useState<File>();
-  const [filePreview, setFilePreview] = useState<string>();
-  const [filePreviewError, setFilePreviewError] = useState(false);
   const [audioPlayback, setAudioPlayback] = useState<{ messageId: string; url: string }>();
   const [downloading, setDownloading] = useState<string>();
-  const [pendingId, setPendingId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [conversationError, setConversationError] = useState(false);
   const [messageError, setMessageError] = useState<unknown>();
   const [messageLoading, setMessageLoading] = useState(false);
   const [error, setError] = useState<unknown>();
-  const [sendError, setSendError] = useState<unknown>();
   const [refresh, setRefresh] = useState(0);
   const [visibilityTick, setVisibilityTick] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -55,23 +50,26 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
   const [contactOpen, setContactOpen] = useState(false);
   const [contactDetails, setContactDetails] = useState<{name?: string; presence?: string; email?: string; role?: string; title?: string | null; title_en?: string | null; bio?: string | null; bio_en?: string | null}>();
   const [contactPresences, setContactPresences] = useState<Record<string, string>>({});
-  const [replyTo, setReplyTo] = useState<Message>();
   const [removeMessage, setRemoveMessage] = useState<Message>();
   const [clearOpen, setClearOpen] = useState(false);
   const [imagePreviews, setImagePreviews] = useState<Record<string, string>>({});
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const bodyInputRef = useRef<HTMLTextAreaElement>(null);
   const imageUrlsRef = useRef<Record<string, string>>({});
   const imageLoadingRef = useRef(new Set<string>());
   const deliveredIds = useRef(new Set<string>());
   const readingIds = useRef(new Set<string>());
   const messagesRef = useRef<Message[]>([]);
   const latestSequence = useRef(0);
-  const draftGenerationRef = useRef(0);
   const selectedIdRef = useRef(selected?.id);
   selectedIdRef.current = selected?.id;
+  const draft = useChatDraft({
+    conversationId: selected?.id,
+    isCurrentConversation: id => selectedIdRef.current === id,
+    onSent: (_id, message) => setMessages(current => mergeMessages(current, [message])),
+    onRefresh: () => setRefresh(current => current + 1),
+  });
+  const isBusy = busy || draft.sending;
   const { recording, recordPaused, recordSeconds, waveform, processingAudio, startRecording, stopRecording, toggleRecordPause } = useChatVoiceRecorder({
-    conversationId: selected?.id, busy, setError, setFile, setPendingId,
+    conversationId: selected?.id, busy: isBusy, setError, setFile: draft.setFile, setPendingId: draft.setPendingId,
   });
 
   useEffect(() => {
@@ -82,18 +80,16 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
   function selectConversation(value: Conversation) {
     if (selectedIdRef.current === value.id) return;
     if (selectedIdRef.current) void api(`conversations/${selectedIdRef.current}/activity`, 'POST', {kind: 'idle'}).catch(() => undefined);
-    draftGenerationRef.current++;
     selectedIdRef.current = value.id;
     setSelected(value);
     onVoiceSelection({ id: value.id, name: value.contact.name });
-    setBody(''); setFile(undefined); setPendingId(undefined); setError(undefined); setSendError(undefined);
-    setReplyTo(undefined); setSearchOpen(false); setSearchResults(undefined); setSearchTerm(''); setPinnedMessages([]);
+    draft.resetForConversation(); setError(undefined);
+    setSearchOpen(false); setSearchResults(undefined); setSearchTerm(''); setPinnedMessages([]);
     setImageViewer(undefined); setContactOpen(false); setExpandedMessages(new Set());
   }
 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
-  const outgoingActivity = recording ? 'recording' : body.trim() ? 'typing' : 'idle';
-  useEffect(() => { if (!body && bodyInputRef.current) bodyInputRef.current.style.height = 'auto'; }, [body]);
+  const outgoingActivity = recording ? 'recording' : draft.body.trim() ? 'typing' : 'idle';
   useEffect(() => {
     const id = selected?.id;
     if (!id) return;
@@ -104,25 +100,6 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
     return () => clearInterval(interval);
   }, [selected?.id, outgoingActivity]);
   const selectedActivity = conversations.find(item => item.id === selected?.id)?.contact_activity || selected?.contact_activity;
-  useEffect(() => {
-    setFilePreview(undefined);
-    setFilePreviewError(false);
-    const image = !!file && (file.type.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(file.name));
-    const audio = !!file && (file.type.startsWith('audio/') || /\.(wav|mp3)$/i.test(file.name));
-    if (!file || (!image && !audio)) { setFilePreview(undefined); return; }
-    if (image) {
-      const reader = new FileReader();
-      reader.onload = () => setFilePreview(String(reader.result));
-      reader.onerror = () => setFilePreview(undefined);
-      reader.readAsDataURL(file);
-      return () => { reader.onload = null; reader.onerror = null; if (reader.readyState === FileReader.LOADING) reader.abort(); };
-    }
-    const preview = file.type ? file : new Blob([file], { type: /\.mp3$/i.test(file.name) ? 'audio/mpeg'
-      : audio ? 'audio/wav' : /\.jpe?g$/i.test(file.name) ? 'image/jpeg' : /\.webp$/i.test(file.name) ? 'image/webp' : 'image/png' });
-    const url = URL.createObjectURL(preview);
-    setFilePreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
   useEffect(() => () => { if (audioPlayback) URL.revokeObjectURL(audioPlayback.url); }, [audioPlayback]);
   useEffect(() => {
     const conversation = selected?.id;
@@ -366,38 +343,6 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
     } catch (value) { setError(value); } finally { setDownloading(undefined); }
   }
 
-  async function send(event: FormEvent) {
-    event.preventDefault();
-    if (!selected || (!body.trim() && !file) || busy || recording || processingAudio) return;
-    const conversation = selected.id;
-    const draftGeneration = draftGenerationRef.current;
-    const clientId = pendingId ?? crypto.randomUUID();
-    setPendingId(clientId); setBusy(true); setSendError(undefined);
-    try {
-      let attachment: { name: string; content: string } | undefined;
-      if (file) {
-        const isImage = /\.(png|jpe?g|webp)$/i.test(file.name);
-        if (file.size === 0 || file.size > (isImage ? 5 : 10) * 1024 * 1024 || !/\.(png|jpe?g|webp|pdf|docx|xlsx|wav|mp3)$/i.test(file.name))
-          throw new Error(t('Adjunta una imagen de hasta 5 MB o un PDF, DOCX, XLSX, WAV o MP3 de hasta 10 MB.'));
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        let binary = '';
-        for (let offset = 0; offset < bytes.length; offset += 32768)
-          binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
-        attachment = { name: file.name, content: btoa(binary) };
-      }
-      const value = await api<Message>(`conversations/${conversation}/messages`, 'POST', { client_id: clientId, body, reply_to_id: replyTo?.id ?? null, ...(attachment ? { attachment } : {}) });
-      if (selectedIdRef.current === conversation) {
-        setMessages(current => mergeMessages(current, [value]));
-        if (draftGenerationRef.current === draftGeneration) {
-          setBody(''); setFile(undefined); setPendingId(undefined); setReplyTo(undefined);
-        }
-        setSendError(undefined);
-      }
-      setRefresh(value => value + 1);
-    } catch (value) { if (selectedIdRef.current === conversation) setSendError(value); }
-    finally { setBusy(false); }
-  }
-
   async function download(message: Message) {
     if (!selected || !message.attachment || downloading) return;
     setDownloading(message.id); setError(undefined);
@@ -445,7 +390,7 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
       setMessages(current => current.filter(item => item.id !== id));
       setPinnedMessages(current => current.filter(item => item.id !== id));
       setSearchResults(current => current?.filter(item => item.id !== id));
-      if (replyTo?.id === id) setReplyTo(undefined);
+      if (draft.replyTo?.id === id) draft.clearReply();
       setRemoveMessage(undefined);
     } catch (value) { setError(value); }
   }
@@ -457,7 +402,7 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
       await api(`conversations/${conversation}/messages`, 'DELETE');
       if (selectedIdRef.current !== conversation) return;
       setMessages([]); setBefore(null); setPinnedMessages([]); setSearchResults(undefined);
-      setReplyTo(undefined); setClearOpen(false);
+      draft.clearReply(); setClearOpen(false);
       latestSequence.current = 0;
     } catch (value) { setError(value); }
   }
@@ -505,7 +450,7 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
           imagePreviews={imagePreviews}
           expandedMessages={expandedMessages}
           onTogglePin={message => { void togglePin(message); }}
-          onReply={message => { draftGenerationRef.current++; setPendingId(undefined); setReplyTo(message); bodyInputRef.current?.focus(); }}
+          onReply={message => { draft.startReply(message); draft.bodyInputRef.current?.focus(); }}
           onRequestRemoval={setRemoveMessage}
           onDownload={message => { void download(message); }}
           onPlayVoice={message => { void playVoice(message); }}
@@ -517,17 +462,38 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
             return next;
           })}
         />
-        <form className="chat-composer" onSubmit={send}>
-          {replyTo && <div className="chat-draft-reply"><Reply size={16} /><span>{t('Respondiendo a')} <strong>{replyTo.body || replyTo.attachment?.name}</strong></span><button type="button" aria-label={t('Cancelar respuesta')} onClick={() => { draftGenerationRef.current++; setPendingId(undefined); setReplyTo(undefined); }}><X size={17} /></button></div>}
-          {file && <div className="chat-attachment-preview"><div className="chat-preview-info">{file.type.startsWith('image/') ? <ImageIcon size={19} /> : <FileText size={19} />}<span>{file.name}<small>{(file.size / 1024 / 1024).toFixed(1)} MB</small></span><button type="button" aria-label={t('Cancelar adjunto')} disabled={busy || recording} onClick={() => { setFile(undefined); setPendingId(undefined); setSendError(undefined); }}><X size={18} /></button></div>{filePreview && (/\.(png|jpe?g|webp)$/i.test(file.name) ? filePreviewError ? <p className="muted">{t('No se pudo mostrar la vista previa de la imagen.')}</p> : <img src={filePreview} alt={t('Vista previa del adjunto')} onError={() => setFilePreviewError(true)} /> : <VoiceNotePlayer src={filePreview} label={t('Vista previa de la nota de voz')} />)}</div>}
-          {recording && <div className="chat-record-actions" role="status"><span className={recordPaused ? 'chat-record-dot paused' : 'chat-record-dot'} aria-hidden="true" /><time>{clockLabel(recordSeconds)}</time><span className="chat-record-wave" aria-hidden="true">{waveform.map((height, index) => <i key={index} style={{height: `${3 + height * 25}px`}} />)}</span><span className="chat-sr-only">{t(recordPaused ? 'Grabación pausada' : 'Grabando nota de voz')}</span><button type="button" className="chat-icon-button" title={t(recordPaused ? 'Reanudar grabación' : 'Pausar grabación')} aria-label={t(recordPaused ? 'Reanudar grabación' : 'Pausar grabación')} onClick={toggleRecordPause}>{recordPaused ? <Play size={19} /> : <Pause size={19} />}</button><button type="button" className="chat-icon-button" title={t('Terminar grabación')} aria-label={t('Terminar grabación')} onClick={() => stopRecording()}><Check size={19} /></button><button type="button" className="chat-icon-button" title={t('Descartar grabación')} aria-label={t('Descartar grabación')} onClick={() => stopRecording(true)}><Trash2 size={19} /></button></div>}
-          {processingAudio && <p role="status">{t('Preparando nota de voz…')}</p>}
-          <ErrorBox error={sendError} />
-          <div className="chat-compose-row"><input ref={fileInputRef} className="chat-file-input" aria-hidden="true" tabIndex={-1} type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,.docx,.xlsx,.wav,.mp3" disabled={recording || processingAudio || busy} onChange={event => { draftGenerationRef.current++; setFilePreview(undefined); setFilePreviewError(false); setFile(event.target.files?.[0]); setPendingId(undefined); setSendError(undefined); event.target.value = ''; }} /><button type="button" className="chat-icon-button" title={t('Adjuntar archivo')} aria-label={t('Adjuntar archivo')} disabled={recording || processingAudio || busy} onClick={() => fileInputRef.current?.click()}><Paperclip size={20} /></button><label className="chat-sr-only" htmlFor="chat-message-input">{t('Mensaje')}</label><textarea id="chat-message-input" ref={bodyInputRef} maxLength={10000} rows={1} placeholder={t('Mensaje')} value={body} onChange={event => { if (event.target.value !== body) { draftGenerationRef.current++; setPendingId(undefined); setSendError(undefined); } setBody(event.target.value); event.target.style.height = 'auto'; event.target.style.height = `${Math.min(event.target.scrollHeight, 150)}px`; }} /><button type="button" className="chat-icon-button" aria-label={t('Grabar nota de voz')} title={t('Grabar nota de voz')} disabled={busy || processingAudio || recording} onClick={() => void startRecording()}><Mic size={20} /></button><button className="primary chat-send" aria-label={t(busy ? 'Enviando…' : 'Enviar')} disabled={busy || recording || processingAudio || (!body.trim() && !file)}><Send size={18} /><span>{t(busy ? 'Enviando…' : 'Enviar')}</span></button></div>
-        </form>
+        <ChatComposer
+          body={draft.body}
+          file={draft.file}
+          filePreview={draft.filePreview}
+          filePreviewError={draft.filePreviewError}
+          sendError={draft.sendError}
+          replyTo={draft.replyTo}
+          busy={isBusy}
+          recording={recording}
+          recordPaused={recordPaused}
+          recordSeconds={recordSeconds}
+          waveform={waveform}
+          processingAudio={processingAudio}
+          fileInputRef={draft.fileInputRef}
+          bodyInputRef={draft.bodyInputRef}
+          onSubmit={event => { void draft.send(event, busy || recording || processingAudio); }}
+          onBodyChange={(value, input) => {
+            draft.changeBody(value);
+            input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 150)}px`;
+          }}
+          onFileChange={draft.selectFile}
+          onCancelFile={draft.cancelFile}
+          onCancelReply={draft.cancelReply}
+          onFilePreviewError={() => draft.setFilePreviewError(true)}
+          onAttach={() => draft.fileInputRef.current?.click()}
+          onStartRecording={() => { void startRecording(); }}
+          onToggleRecordPause={toggleRecordPause}
+          onStopRecording={stopRecording}
+        />
       </> : <Empty title={t('Selecciona una conversación')}>{t('Elige una conversación o busca un contacto.')}</Empty>}</section>
     </div>
-    {imageViewer && <Modal title={t('Vista ampliada de imagen')} onClose={() => setImageViewer(undefined)}><div className="chat-image-viewer"><div className="chat-image-toolbar"><button type="button" title={t(imageViewer.pinned ? 'Desfijar mensaje' : 'Fijar mensaje')} aria-label={t(imageViewer.pinned ? 'Desfijar mensaje' : 'Fijar mensaje')} onClick={() => void togglePin(imageViewer)}><Pin size={18} /></button><button type="button" title={t('Responder mensaje')} aria-label={t('Responder mensaje')} onClick={() => { setReplyTo(imageViewer); setImageViewer(undefined); bodyInputRef.current?.focus(); }}><Reply size={18} /></button><button type="button" title={t('Borrar mensaje')} aria-label={t('Borrar mensaje')} onClick={() => { setRemoveMessage(imageViewer); setImageViewer(undefined); }}><Trash2 size={18} /></button><button type="button" title={t('Descargar')} aria-label={t('Descargar')} onClick={() => void download(imageViewer)}><Download size={18} /></button><span aria-hidden="true" /><button type="button" title={t('Reducir')} aria-label={t('Reducir')} onClick={() => setImageZoom(value => Math.max(1, value - .5))}><ZoomOut size={18} /></button><strong>{Math.round(imageZoom * 100)}%</strong><button type="button" title={t('Ampliar')} aria-label={t('Ampliar')} onClick={() => setImageZoom(value => Math.min(4, value + .5))}><ZoomIn size={18} /></button></div>{imagePreviews[imageViewer.id] ? <div className="chat-image-viewport"><button type="button" className={`chat-image-zoom-target${imageZoom > 1 ? ' zoomed' : ''}`} aria-label={t(imageZoom > 1 ? 'Reducir imagen' : 'Ampliar imagen')} onClick={() => setImageZoom(value => value > 1 ? 1 : 2)}><img src={imagePreviews[imageViewer.id]} alt={imageViewer.attachment?.name || t('Imagen')} style={{ transform: `scale(${imageZoom})` }} /></button></div> : <p>{t('Cargando imagen…')}</p>}</div></Modal>}
+    {imageViewer && <Modal title={t('Vista ampliada de imagen')} onClose={() => setImageViewer(undefined)}><div className="chat-image-viewer"><div className="chat-image-toolbar"><button type="button" title={t(imageViewer.pinned ? 'Desfijar mensaje' : 'Fijar mensaje')} aria-label={t(imageViewer.pinned ? 'Desfijar mensaje' : 'Fijar mensaje')} onClick={() => void togglePin(imageViewer)}><Pin size={18} /></button><button type="button" title={t('Responder mensaje')} aria-label={t('Responder mensaje')} onClick={() => { draft.startReply(imageViewer); setImageViewer(undefined); draft.bodyInputRef.current?.focus(); }}><Reply size={18} /></button><button type="button" title={t('Borrar mensaje')} aria-label={t('Borrar mensaje')} onClick={() => { setRemoveMessage(imageViewer); setImageViewer(undefined); }}><Trash2 size={18} /></button><button type="button" title={t('Descargar')} aria-label={t('Descargar')} onClick={() => void download(imageViewer)}><Download size={18} /></button><span aria-hidden="true" /><button type="button" title={t('Reducir')} aria-label={t('Reducir')} onClick={() => setImageZoom(value => Math.max(1, value - .5))}><ZoomOut size={18} /></button><strong>{Math.round(imageZoom * 100)}%</strong><button type="button" title={t('Ampliar')} aria-label={t('Ampliar')} onClick={() => setImageZoom(value => Math.min(4, value + .5))}><ZoomIn size={18} /></button></div>{imagePreviews[imageViewer.id] ? <div className="chat-image-viewport"><button type="button" className={`chat-image-zoom-target${imageZoom > 1 ? ' zoomed' : ''}`} aria-label={t(imageZoom > 1 ? 'Reducir imagen' : 'Ampliar imagen')} onClick={() => setImageZoom(value => value > 1 ? 1 : 2)}><img src={imagePreviews[imageViewer.id]} alt={imageViewer.attachment?.name || t('Imagen')} style={{ transform: `scale(${imageZoom})` }} /></button></div> : <p>{t('Cargando imagen…')}</p>}</div></Modal>}
     {contactOpen && selected && <Modal title={t('Perfil del contacto')} onClose={() => setContactOpen(false)}><div className="chat-contact-panel"><div className="chat-contact-card"><ContactAvatar organizationId={organizationId} userId={selected.contact.id} name={selected.contact.name} /><div className="chat-contact-identity"><h3>{contactDetails?.name || selected.contact.name}</h3><span className="presence-status" data-state={contactDetails?.presence || 'offline'}><span aria-hidden="true">●</span> {t(presenceLabels[contactDetails?.presence || 'offline'])}</span></div></div><div className="chat-contact-info"><div><span>{t('Correo electrónico')}</span><strong>{contactDetails?.email ? <a href={`mailto:${contactDetails.email}`}>{contactDetails.email}</a> : t('Sin registrar')}</strong></div><div><span>{t('Cargo')}</span><strong>{contactDetails?.title ? localizedLabel({label: contactDetails.title, label_en: contactDetails.title_en}) : t('Sin registrar')}</strong></div><div><span>{t('Rol de acceso')}</span><strong>{contactDetails?.role ? t(roleNames[contactDetails.role] || contactDetails.role) : t('Sin registrar')}</strong></div></div><div className="chat-contact-about"><span>{t('Acerca de')}</span><p>{contactDetails?.bio ? localizedLabel({label: contactDetails.bio, label_en: contactDetails.bio_en}) : t('Sin descripción todavía.')}</p></div></div></Modal>}
     {removeMessage && <Modal title={t(removeMessage.sender_id === selfId ? 'Borrar para todos' : 'Borrar para mí')} onClose={() => setRemoveMessage(undefined)}><p>{t(removeMessage.sender_id === selfId ? 'Este mensaje dejará de aparecer para ambos participantes.' : 'Este mensaje dejará de aparecer solo en tu cuenta.')}</p><div className="actions end"><button type="button" onClick={() => setRemoveMessage(undefined)}>{t('Cancelar')}</button><button type="button" className="danger-button" onClick={() => void hideMessage()}>{t(removeMessage.sender_id === selfId ? 'Borrar para todos' : 'Borrar para mí')}</button></div></Modal>}
     {clearOpen && <Modal title={t('Vaciar chat para mí')} onClose={() => setClearOpen(false)}><p>{t('Los mensajes actuales dejarán de aparecer solo en tu cuenta. Los mensajes nuevos seguirán llegando.')}</p><div className="actions end"><button type="button" onClick={() => setClearOpen(false)}>{t('Cancelar')}</button><button type="button" className="danger-button" onClick={() => void clearConversation()}>{t('Vaciar chat')}</button></div></Modal>}

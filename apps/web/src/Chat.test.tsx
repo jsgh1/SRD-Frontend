@@ -60,6 +60,18 @@ function testMessage(id: string, sequence: number, senderId: string, body: strin
   };
 }
 
+function testFile(content: string | Uint8Array, name: string, type: string): File {
+  const file = new File([typeof content === 'string' ? content : Uint8Array.from(content).buffer as ArrayBuffer], name, { type });
+  Object.defineProperty(file, 'arrayBuffer', {
+    configurable: true,
+    value: async () => {
+      const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : new Uint8Array(content);
+      return bytes.buffer as ArrayBuffer;
+    },
+  });
+  return file;
+}
+
 function configureConversationHistories(
   conversations: TestConversation[],
   histories: Record<string, TestMessage[]>,
@@ -67,9 +79,10 @@ function configureConversationHistories(
     items: histories[conversationId] || [], next_before: null, next_after: null, receipts: [],
   }),
   loadAttachment: (conversationId: string, messageId: string) => Promise<unknown> = async () => Promise.reject(new Error('No attachment in fixture.')),
+  sendMessage: (conversationId: string, payload: unknown) => Promise<unknown> = async () => Promise.reject(new Error('No send handler in fixture.')),
 ) {
   const attempts = new Map<string, number>();
-  apiMock.mockImplementation(((path: string, method = 'GET') => {
+  apiMock.mockImplementation(((path: string, method = 'GET', payload?: unknown) => {
     if (path === 'chat/broadcast-config') return Promise.reject(new Error('Realtime transport unavailable in this test.'));
     if (path === 'conversations?page=1') {
       return Promise.resolve({ items: conversations, page: 1, page_size: 25, total: conversations.length });
@@ -82,6 +95,8 @@ function configureConversationHistories(
     if (/^conversations\/[^/]+\/messages\/[^/]+\/pin$/.test(path)) return Promise.resolve({ pinned: true });
     if (/^conversations\/[^/]+\/messages\/[^/]+$/.test(path) && method === 'DELETE') return Promise.resolve({});
     if (/^conversations\/[^/]+\/messages$/.test(path) && method === 'DELETE') return Promise.resolve({});
+    const message = path.match(/^conversations\/([^/]+)\/messages$/);
+    if (message && method === 'POST') return sendMessage(message[1], payload);
     const history = path.match(/^conversations\/([^/]+)\/messages(?:\?.*)?$/);
     if (history) {
       const conversationId = history[1];
@@ -653,5 +668,189 @@ describe('Chat message presentation characterization P43', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Diego Mensajes/ }));
     await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith('blob:voice-preview'));
+  });
+});
+
+describe('Chat composer characterization P43', () => {
+  const first: TestConversation = {
+    id: 'composer-one', contact: { id: 'contact-one', name: 'Ana Composer' }, updated_at: '2026-11-03T12:00:00Z',
+  };
+  const second: TestConversation = {
+    id: 'composer-two', contact: { id: 'contact-two', name: 'Luis Composer' }, updated_at: '2026-11-03T12:01:00Z',
+  };
+
+  it('sends text and a reply reference, then clears only the submitted draft', async () => {
+    const quoted = testMessage('quoted-message', 1, 'contact-one', 'Mensaje para responder');
+    let submitted: { conversationId: string; payload: { body: string; reply_to_id: string | null; client_id: string } } | undefined;
+    configureConversationHistories([first], { [first.id]: [quoted] }, undefined, undefined, async (conversationId, value) => {
+      submitted = { conversationId, payload: value as { body: string; reply_to_id: string | null; client_id: string } };
+      return testMessage('sent-reply', 2, 'user-1', submitted.payload.body);
+    });
+
+    const { container } = renderChat();
+    fireEvent.click(await screen.findByRole('button', { name: /Ana Composer/ }));
+    await screen.findByText('Mensaje para responder');
+    const row = container.querySelector<HTMLLIElement>('#chat-message-quoted-message')!;
+    fireEvent.click(row.querySelector('summary[aria-label="Opciones del mensaje"]')!);
+    fireEvent.click(within(row).getByRole('button', { name: 'Responder mensaje' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Mensaje' }), { target: { value: 'Respuesta nueva' } });
+    fireEvent.submit(container.querySelector<HTMLFormElement>('.chat-composer')!);
+
+    expect(await screen.findByText('Respuesta nueva')).toBeTruthy();
+    expect(submitted?.conversationId).toBe(first.id);
+    expect(submitted?.payload.body).toBe('Respuesta nueva');
+    expect(submitted?.payload.reply_to_id).toBe(quoted.id);
+    expect(submitted?.payload.client_id).toMatch(/^[0-9a-f-]{36}$/i);
+    expect((screen.getByRole('textbox', { name: 'Mensaje' }) as HTMLTextAreaElement).value).toBe('');
+    expect(screen.queryByText('Respondiendo a')).toBeNull();
+  });
+
+  it('uploads an allowed document with a stable client id and base64 content', async () => {
+    let submitted: { conversationId: string; payload: { body: string; reply_to_id: string | null; client_id: string; attachment: { name: string; content: string } } } | undefined;
+    configureConversationHistories([first], { [first.id]: [] }, undefined, undefined, async (conversationId, value) => {
+      submitted = { conversationId, payload: value as typeof submitted extends undefined ? never : NonNullable<typeof submitted>['payload'] };
+      return testMessage('sent-document', 1, 'user-1', '');
+    });
+
+    const { container } = renderChat();
+    fireEvent.click(await screen.findByRole('button', { name: /Ana Composer/ }));
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, { target: { files: [testFile('pdf-content', 'acta.pdf', 'application/pdf')] } });
+    await screen.findByText('acta.pdf');
+    fireEvent.submit(container.querySelector<HTMLFormElement>('.chat-composer')!);
+
+    await waitFor(() => expect(submitted).toBeTruthy());
+    expect(submitted?.conversationId).toBe(first.id);
+    expect(submitted?.payload.body).toBe('');
+    expect(submitted?.payload.reply_to_id).toBeNull();
+    expect(submitted?.payload.client_id).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(submitted?.payload.attachment).toEqual({ name: 'acta.pdf', content: 'cGRmLWNvbnRlbnQ=' });
+  });
+
+  it('rejects unsupported extensions and images over the existing size limit before upload', async () => {
+    const sendMessage = vi.fn(async () => testMessage('unused', 1, 'user-1', ''));
+    configureConversationHistories([first], { [first.id]: [] }, undefined, undefined, sendMessage);
+    const { container } = renderChat();
+    fireEvent.click(await screen.findByRole('button', { name: /Ana Composer/ }));
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+
+    fireEvent.change(input, { target: { files: [new File(['bad'], 'program.exe', { type: 'application/octet-stream' })] } });
+    fireEvent.submit(container.querySelector<HTMLFormElement>('.chat-composer')!);
+    expect((await screen.findByRole('alert')).textContent).toContain('Adjunta una imagen de hasta 5 MB');
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar adjunto' }));
+    fireEvent.change(input, { target: { files: [testFile(new Uint8Array(5 * 1024 * 1024 + 1), 'foto.png', 'image/png')] } });
+    await screen.findByText('foto.png');
+    fireEvent.submit(container.querySelector<HTMLFormElement>('.chat-composer')!);
+    expect((await screen.findByRole('alert')).textContent).toContain('Adjunta una imagen de hasta 5 MB');
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('reuses the idempotency client id when retrying an unchanged failed draft', async () => {
+    const payloads: Array<{ client_id: string }> = [];
+    let attempt = 0;
+    configureConversationHistories([first], { [first.id]: [] }, undefined, undefined, async (_conversationId, value) => {
+      payloads.push(value as { client_id: string });
+      attempt++;
+      if (attempt === 1) throw new Error('No se pudo enviar el mensaje.');
+      return testMessage('sent-after-retry', 1, 'user-1', 'Reintento');
+    });
+
+    const { container } = renderChat();
+    fireEvent.click(await screen.findByRole('button', { name: /Ana Composer/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Mensaje' }), { target: { value: 'Reintento' } });
+    const form = container.querySelector<HTMLFormElement>('.chat-composer')!;
+    fireEvent.submit(form);
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.submit(form);
+
+    expect(await screen.findByText('Reintento')).toBeTruthy();
+    expect(payloads).toHaveLength(2);
+    expect(payloads[0].client_id).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(payloads[1].client_id).toBe(payloads[0].client_id);
+  });
+
+  it('preserves a newer same-thread draft when an older send resolves', async () => {
+    let resolveSend!: (value: unknown) => void;
+    const pendingSend = new Promise<unknown>(resolve => { resolveSend = resolve; });
+    configureConversationHistories([first], { [first.id]: [] }, undefined, undefined, () => pendingSend);
+    const { container } = renderChat();
+    fireEvent.click(await screen.findByRole('button', { name: /Ana Composer/ }));
+    const textbox = screen.getByRole('textbox', { name: 'Mensaje' }) as HTMLTextAreaElement;
+    fireEvent.change(textbox, { target: { value: 'Primer borrador' } });
+    fireEvent.submit(container.querySelector<HTMLFormElement>('.chat-composer')!);
+    expect(await screen.findByRole('button', { name: 'Enviando…' })).toBeTruthy();
+    fireEvent.change(textbox, { target: { value: 'Borrador nuevo' } });
+    await act(async () => {
+      resolveSend(testMessage('older-send', 1, 'user-1', 'Primer borrador'));
+      await pendingSend;
+    });
+
+    expect(textbox.value).toBe('Borrador nuevo');
+  });
+
+  it('does not insert a late send into the next conversation after switching threads', async () => {
+    let resolveSend!: (value: unknown) => void;
+    const pendingSend = new Promise<unknown>(resolve => { resolveSend = resolve; });
+    configureConversationHistories([first, second], { [first.id]: [], [second.id]: [] }, undefined, undefined, () => pendingSend);
+    const { container } = renderChat();
+    fireEvent.click(await screen.findByRole('button', { name: /Ana Composer/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Mensaje' }), { target: { value: 'Mensaje del hilo anterior' } });
+    fireEvent.submit(container.querySelector<HTMLFormElement>('.chat-composer')!);
+    fireEvent.click(await screen.findByRole('button', { name: /Luis Composer/ }));
+    const textbox = screen.getByRole('textbox', { name: 'Mensaje' }) as HTMLTextAreaElement;
+    fireEvent.change(textbox, { target: { value: 'Borrador de Luis' } });
+    await act(async () => {
+      resolveSend(testMessage('late-send', 1, 'user-1', 'Mensaje del hilo anterior'));
+      await pendingSend;
+    });
+
+    expect(textbox.value).toBe('Borrador de Luis');
+    expect(container.querySelector('.chat-messages')?.textContent).not.toContain('Mensaje del hilo anterior');
+  });
+
+  it('does not surface a pending message after the active organization remounts Chat', async () => {
+    let resolveSend!: (value: unknown) => void;
+    const pendingSend = new Promise<unknown>(resolve => { resolveSend = resolve; });
+    let page = 0;
+    apiMock.mockImplementation(((path: string, method = 'GET') => {
+      if (path === 'chat/broadcast-config') return Promise.reject(new Error('Realtime transport unavailable in this test.'));
+      if (path === 'conversations?page=1') {
+        page++;
+        const conversations = page === 1 ? [first] : [second];
+        return Promise.resolve({ items: conversations, page: 1, page_size: 25, total: 1 });
+      }
+      if (path.startsWith('contacts/')) return Promise.resolve({ name: 'Contacto de prueba', presence: 'online' });
+      if (path.endsWith('/pinned')) return Promise.resolve({ items: [] });
+      if (path.includes('/activity') || path.endsWith('/receipts')) return Promise.resolve({ items: [] });
+      const message = path.match(/^conversations\/([^/]+)\/messages$/);
+      if (message && method === 'POST') return pendingSend;
+      if (message) return Promise.resolve({ items: [], next_before: null, next_after: null, receipts: [] });
+      throw new Error(`Unexpected API request: ${method} ${path}`);
+    }) as unknown as typeof api);
+    const renderOrganization = (organizationId: string) => <Chat
+      key={organizationId}
+      selfId="user-1"
+      organizationId={organizationId}
+      onStarted={vi.fn()}
+      onOpened={vi.fn()}
+      onContacts={vi.fn()}
+      onVoiceSelection={vi.fn()}
+    />;
+
+    const view = render(renderOrganization('org-one'));
+    fireEvent.click(await screen.findByRole('button', { name: /Ana Composer/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Mensaje' }), { target: { value: 'Mensaje de junta uno' } });
+    fireEvent.submit(view.container.querySelector<HTMLFormElement>('.chat-composer')!);
+    view.rerender(renderOrganization('org-two'));
+    fireEvent.click(await screen.findByRole('button', { name: /Luis Composer/ }));
+    await act(async () => {
+      resolveSend(testMessage('old-organization-message', 1, 'user-1', 'Mensaje de junta uno'));
+      await pendingSend;
+    });
+
+    expect(view.container.querySelector('.chat-messages')?.textContent).not.toContain('Mensaje de junta uno');
+    expect((screen.getByRole('textbox', { name: 'Mensaje' }) as HTMLTextAreaElement).value).toBe('');
   });
 });

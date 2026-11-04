@@ -64,13 +64,24 @@ function createStream() {
   return { stream, stop };
 }
 
-function configureApi() {
-  apiMock.mockImplementation(((path: string, method = 'GET') => {
+function wavFile() {
+  const file = new File(['wav'], 'nota-de-voz.wav', { type: 'audio/wav' });
+  Object.defineProperty(file, 'arrayBuffer', {
+    configurable: true,
+    value: async () => new TextEncoder().encode('wav').buffer as ArrayBuffer,
+  });
+  return file;
+}
+
+function configureApi(sendMessage: (conversationId: string, payload: unknown) => Promise<unknown> = async () => Promise.reject(new Error('No send handler in fixture.'))) {
+  apiMock.mockImplementation(((path: string, method = 'GET', payload?: unknown) => {
     if (path === 'chat/broadcast-config') return Promise.reject(new Error('Realtime intentionally disabled in recorder tests.'));
     if (path === 'conversations?page=1') return Promise.resolve({ items: conversations, page: 1, page_size: 25, total: conversations.length });
     if (path.startsWith('contacts/')) return Promise.resolve({ name: 'Contacto de prueba', presence: 'online', person_id: null });
     if (path.endsWith('/pinned')) return Promise.resolve({ items: [] });
     if (path.includes('/activity') || path.endsWith('/receipts')) return Promise.resolve({ items: [] });
+    const message = path.match(/^conversations\/([^/]+)\/messages$/);
+    if (message && method === 'POST') return sendMessage(message[1], payload);
     if (/^conversations\/[^/]+\/messages(?:\?.*)?$/.test(path)) {
       return Promise.resolve({ items: [], next_before: null, next_after: null, receipts: [] });
     }
@@ -82,8 +93,8 @@ function renderChat() {
   return render(<Chat selfId="user-1" organizationId="org-1" onStarted={vi.fn()} onOpened={vi.fn()} onContacts={vi.fn()} onVoiceSelection={vi.fn()} />);
 }
 
-async function openConversation(name = 'Ana Prueba') {
-  configureApi();
+async function openConversation(name = 'Ana Prueba', sendMessage?: (conversationId: string, payload: unknown) => Promise<unknown>) {
+  configureApi(sendMessage);
   const view = renderChat();
   fireEvent.click(await screen.findByRole('button', { name: new RegExp(name) }));
   await screen.findByRole('button', { name: 'Grabar nota de voz' });
@@ -99,7 +110,7 @@ async function startRecording() {
 beforeEach(() => {
   apiMock.mockReset();
   convertRecording.mockReset();
-  convertRecording.mockResolvedValue(new File(['wav'], 'nota-de-voz.wav', { type: 'audio/wav' }));
+  convertRecording.mockResolvedValue(wavFile());
   FakeMediaRecorder.instances = [];
   FakeAudioContext.instances = [];
   setLanguage('es');
@@ -165,6 +176,29 @@ describe('Chat voice recording characterization', () => {
     expect(screen.queryByText('Grabando nota de voz')).toBeNull();
     expect(FakeAudioContext.instances[0].close).toHaveBeenCalledOnce();
     expect(recorder.state).toBe('inactive');
+  });
+
+  it('sends the converted WAV through the same composer attachment contract', async () => {
+    const { stream } = createStream();
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn(async () => stream) } });
+    const sent: Array<{ conversationId: string; payload: { body: string; reply_to_id: null; client_id: string; attachment: { name: string; content: string } } }> = [];
+    await openConversation('Ana Prueba', async (conversationId, value) => {
+      sent.push({ conversationId, payload: value as typeof sent[number]['payload'] });
+      return { id: 'sent-voice', sequence: 1, sender_id: 'user-1', body: '', attachment: null, reply_to_id: null, pinned: false, created_at: '2026-11-03T12:00:00Z', delivered_at: null, read_at: null };
+    });
+
+    await startRecording();
+    FakeMediaRecorder.instances[0].emitData(new Blob(['synthetic audio'], { type: 'audio/webm' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Terminar grabación' }));
+    await screen.findByText('nota-de-voz.wav');
+    fireEvent.submit(document.querySelector<HTMLFormElement>('.chat-composer')!);
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].conversationId).toBe('conversation-1');
+    expect(sent[0].payload.body).toBe('');
+    expect(sent[0].payload.reply_to_id).toBeNull();
+    expect(sent[0].payload.client_id).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(sent[0].payload.attachment).toEqual({ name: 'nota-de-voz.wav', content: 'd2F2' });
   });
 
   it('discards recording without converting or retaining the captured audio', async () => {
