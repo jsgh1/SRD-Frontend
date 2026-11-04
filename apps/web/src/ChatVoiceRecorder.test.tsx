@@ -230,10 +230,15 @@ describe('Chat voice recording characterization', () => {
     const { stream, stop } = createStream();
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn(async () => stream) } });
     const view = await openConversation();
+    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    const clearIntervalSpy = vi.spyOn(window, 'clearInterval');
     await startRecording();
+    const recordingIntervals = setIntervalSpy.mock.results.map(result => result.value);
+    expect(recordingIntervals.length).toBeGreaterThanOrEqual(2);
 
     view.unmount();
 
+    recordingIntervals.forEach(interval => expect(clearIntervalSpy).toHaveBeenCalledWith(interval));
     expect(FakeMediaRecorder.instances[0].stop).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledOnce();
     expect(FakeAudioContext.instances[0].close).toHaveBeenCalledOnce();
@@ -286,7 +291,7 @@ describe('Chat voice recording characterization', () => {
     expect(screen.queryByText('nota-de-voz.wav')).toBeNull();
   });
 
-  it('does not attach a converted recording after the conversation changed', async () => {
+  it('keeps the new conversation draft when an older recording conversion resolves later', async () => {
     let resolveWav!: (file: File) => void;
     convertRecording.mockReturnValueOnce(new Promise<File>(resolve => { resolveWav = resolve; }));
     const { stream } = createStream();
@@ -298,11 +303,17 @@ describe('Chat voice recording characterization', () => {
     await waitFor(() => expect(convertRecording).toHaveBeenCalledOnce());
 
     fireEvent.click(await screen.findByRole('button', { name: /Luis Prueba/ }));
+    const newDraft = new File(['draft'], 'borrador-nuevo.pdf', { type: 'application/pdf' });
+    const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(fileInput).toBeTruthy();
+    fireEvent.change(fileInput!, { target: { files: [newDraft] } });
+    await screen.findByText('borrador-nuevo.pdf');
     await act(async () => {
       resolveWav(new File(['wav'], 'obsoleta.wav', { type: 'audio/wav' }));
     });
 
     expect(screen.queryByText('obsoleta.wav')).toBeNull();
+    expect(screen.getByText('borrador-nuevo.pdf')).toBeTruthy();
   });
 
   it('releases microphone resources after successful conversion as well as stopping the recorder', async () => {
