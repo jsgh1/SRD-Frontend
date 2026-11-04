@@ -37,8 +37,8 @@ vi.mock('pusher-js', () => ({
 const apiMock = vi.mocked(api);
 const originalDocumentHidden = document.hidden;
 
-function renderChat(selfId = 'user-1') {
-  return render(<Chat selfId={selfId} organizationId="org-1" onStarted={vi.fn()} onOpened={vi.fn()} onContacts={vi.fn()} onVoiceSelection={vi.fn()} />);
+function renderChat(selfId = 'user-1', organizationId = 'org-1') {
+  return render(<Chat selfId={selfId} organizationId={organizationId} onStarted={vi.fn()} onOpened={vi.fn()} onContacts={vi.fn()} onVoiceSelection={vi.fn()} />);
 }
 
 function configureApi() {
@@ -207,6 +207,18 @@ describe('Chat realtime lifecycle characterization', () => {
 
     expect(pusherInstances[0].disconnect).toHaveBeenCalledTimes(1);
     expect(pusherInstances[1].key).toBe('public-test-key');
+  });
+
+  it('disconnects and reloads channel configuration when the active junta changes', async () => {
+    configureApi();
+    const view = renderChat('user-1', 'org-1');
+    await waitFor(() => expect(pusherInstances).toHaveLength(1));
+
+    view.rerender(<Chat selfId="user-1" organizationId="org-2" onStarted={vi.fn()} onOpened={vi.fn()} onContacts={vi.fn()} onVoiceSelection={vi.fn()} />);
+    await waitFor(() => expect(pusherInstances).toHaveLength(2));
+
+    expect(pusherInstances[0].disconnect).toHaveBeenCalledOnce();
+    expect(apiMock.mock.calls.filter(([path]) => path === 'chat/broadcast-config')).toHaveLength(2);
   });
 
   it('notifies the chat refresh listener when a subscribed change event arrives', async () => {
