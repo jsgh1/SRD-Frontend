@@ -216,7 +216,7 @@ describe('Chat conversation history', () => {
     fireEvent.click(screen.getByRole('button', { name: /Camila Prueba/ }));
     await screen.findByText('Mensaje propio después');
 
-    const rows = Array.from(container.querySelectorAll('.chat-messages > li'));
+    const rows = Array.from(container.querySelectorAll<HTMLLIElement>('.chat-messages > li'));
     expect(rows).toHaveLength(2);
     expect(rows[0].textContent).toContain('Mensaje recibido primero');
     expect(rows[0].classList.contains('mine')).toBe(false);
@@ -502,7 +502,7 @@ describe('Chat message presentation characterization P43', () => {
     const { container } = renderRichChat();
     fireEvent.click(await screen.findByRole('button', { name: /Camila Mensajes/ }));
     expect(await screen.findByText('Llamada finalizada')).toBeTruthy();
-    const rows = Array.from(container.querySelectorAll('.chat-messages > li'));
+    const rows = Array.from(container.querySelectorAll<HTMLLIElement>('.chat-messages > li'));
     expect(rows.map(row => row.id)).toEqual([
       'chat-message-base', 'chat-message-reply', 'chat-message-long', 'chat-message-call',
       'chat-message-image', 'chat-message-voice', 'chat-message-document',
@@ -550,14 +550,14 @@ describe('Chat message presentation characterization P43', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Camila Mensajes/ }));
     await screen.findByText('Mensaje propio');
 
-    const receivedRow = container.querySelector('#chat-message-received')!;
+    const receivedRow = container.querySelector<HTMLLIElement>('#chat-message-received')!;
     fireEvent.click(receivedRow.querySelector('summary')!);
     fireEvent.click(within(receivedRow).getByRole('button', { name: 'Fijar mensaje' }));
     expect(await screen.findByText('Fijados')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Ir al mensaje' }));
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
 
-    const ownRow = container.querySelector('#chat-message-own')!;
+    const ownRow = container.querySelector<HTMLLIElement>('#chat-message-own')!;
     fireEvent.click(ownRow.querySelector('summary')!);
     fireEvent.click(within(ownRow).getByRole('button', { name: 'Responder mensaje' }));
     expect(screen.getByText('Respondiendo a')).toBeTruthy();
