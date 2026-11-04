@@ -49,10 +49,14 @@ function renderPersons(onCreate = vi.fn()) {
   return render(<Persons principal={principal} mode="list" onCreate={onCreate} />);
 }
 
-beforeEach(() => setLanguage('es'));
+beforeEach(() => {
+  localStorage.clear();
+  setLanguage('es');
+});
 afterEach(() => {
   cleanup();
   apiMock.mockReset();
+  localStorage.clear();
   setLanguage('es');
 });
 
@@ -135,6 +139,44 @@ describe('Persons list behavior', () => {
     expect(within(list).getByText('Ana Pérez')).toBeTruthy();
     expect(listRequests).toBe(2);
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('restores export jobs from the active organization and account storage key', async () => {
+    const firstKey = `srd-person-export:${principal.organization.id}:${principal.user_id}`;
+    const secondPrincipal = {
+      ...principal,
+      organization: { ...principal.organization, id: 'org-2' },
+    } as Principal;
+    const secondKey = `srd-person-export:${secondPrincipal.organization.id}:${secondPrincipal.user_id}`;
+    localStorage.setItem(firstKey, '11111111-1111-4111-8111-111111111111');
+    localStorage.setItem(secondKey, '22222222-2222-4222-8222-222222222222');
+    apiMock.mockImplementation(((path: string) => {
+      if (path === 'person-filter-settings') return Promise.resolve(filterSettings);
+      if (path.startsWith('persons?page=')) return Promise.resolve({ items: [], total: 0 });
+      if (path === 'persons/export-jobs/11111111-1111-4111-8111-111111111111'
+        || path === 'persons/export-jobs/22222222-2222-4222-8222-222222222222') {
+        return Promise.resolve({
+          id: path.endsWith('11111111-1111-4111-8111-111111111111')
+            ? '11111111-1111-4111-8111-111111111111'
+            : '22222222-2222-4222-8222-222222222222',
+          status: 'ready',
+          format: 'xlsx',
+          count: 1,
+          cutoff_at: '2026-11-03T12:00:00Z',
+          filename: 'people.xlsx',
+        });
+      }
+      throw new Error(`Unexpected API request: ${path}`);
+    }) as unknown as typeof api);
+
+    const first = render(<Persons principal={principal} mode="list" onCreate={vi.fn()} />);
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('persons/export-jobs/11111111-1111-4111-8111-111111111111'));
+    expect(apiMock).not.toHaveBeenCalledWith('persons/export-jobs/22222222-2222-4222-8222-222222222222');
+
+    first.unmount();
+    render(<Persons principal={secondPrincipal} mode="list" onCreate={vi.fn()} />);
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('persons/export-jobs/22222222-2222-4222-8222-222222222222'));
+    expect(apiMock.mock.calls.filter(([path]) => path === 'persons/export-jobs/11111111-1111-4111-8111-111111111111')).toHaveLength(1);
   });
 });
 

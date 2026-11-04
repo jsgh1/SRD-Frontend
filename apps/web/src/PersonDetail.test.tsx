@@ -65,6 +65,40 @@ afterEach(() => {
 });
 
 describe('PersonDetail access invitation behavior', () => {
+  it('loads the selected person again when the detail target changes', async () => {
+    const otherPerson = { ...person, id: 'person-2', first_names: 'Beatriz', last_names: 'Gomez' };
+    apiMock.mockImplementation(((path: string) => {
+      if (path === 'invitations/person/person-1/status' || path === 'invitations/person/person-2/status') {
+        return Promise.resolve({ status: 'available' });
+      }
+      if (path === 'persons/person-1') return Promise.resolve(person);
+      if (path === 'persons/person-2') return Promise.resolve(otherPerson);
+      if (path === 'persons/person-1/photos' || path === 'persons/person-2/photos') return Promise.resolve({ items: [] });
+      throw new Error(`Unexpected API request: ${path}`);
+    }) as unknown as typeof api);
+
+    const view = render(<PersonDetail id="person-1" principal={principal} onClose={vi.fn()} />);
+    expect(await screen.findByRole('heading', { name: /Ana/ })).toBeTruthy();
+
+    view.rerender(<PersonDetail id="person-2" principal={principal} onClose={vi.fn()} />);
+
+    expect(await screen.findByRole('heading', { name: /Beatriz Gomez/ })).toBeTruthy();
+    expect(apiMock).toHaveBeenCalledWith('persons/person-2');
+  });
+
+  it('keeps administrator invitation roles available', async () => {
+    const admin = { ...principal, role: 'admin' } as Principal;
+    render(<PersonDetail id="person-1" principal={admin} onClose={vi.fn()} />);
+
+    const heading = await screen.findByRole('heading', { name: /Acceso al sistema/ });
+    const access = heading.closest('section');
+    expect(access).toBeTruthy();
+    const role = await within(access!).findByRole('combobox') as HTMLSelectElement;
+    expect(Array.from(role.options).map(option => option.value)).toEqual([
+      'viewer', 'registrar', 'treasurer', 'auditor', 'admin',
+    ]);
+  });
+
   it('limits a registrar to the viewer role and marks the invitation pending after sending', async () => {
     render(<PersonDetail id="person-1" principal={principal} onClose={vi.fn()} />);
 
