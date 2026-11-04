@@ -8,42 +8,15 @@ import { mergeMessages, mergeReceipts, withReceipt } from './chatMessageMerge';
 import { useChatVoiceRecorder } from './useChatVoiceRecorder';
 import { useChatRealtime } from './useChatRealtime';
 import { ChatConversationList } from './ChatConversationList';
-import { activityLabels, presenceLabels, type Conversation } from './chatTypes';
-import { Check, ChevronDown, ChevronUp, Download, Eye, FileText, Image as ImageIcon, Mic, Pause, Paperclip, Phone, Pin, Play, Reply, Search, Send, Trash2, Volume2, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChatMessageList, VoiceNotePlayer } from './ChatMessageList';
+import { activityLabels, presenceLabels, type ChatAttachment, type Conversation, type Message } from './chatTypes';
+import { Check, ChevronDown, Download, Eye, FileText, Image as ImageIcon, Mic, Pause, Paperclip, Phone, Pin, Play, Reply, Search, Send, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { Modal } from './ui';
 
 type ConversationPage = { items: Conversation[]; page: number; page_size: number; total: number };
-type ChatAttachment = { id: string; name: string; mime: string; bytes: number };
-type Message = { id: string; sequence: number; sender_id: string; body: string; attachment: ChatAttachment | null; reply_to_id: string | null; pinned: boolean; system_kind?: 'call_missed' | 'call_ended' | null; call_duration_seconds?: number | null; created_at: string; delivered_at: string | null; read_at: string | null };
 type History = { items: Message[]; next_before: number | null; next_after: number | null; removed_ids?: string[]; receipts: Pick<Message, 'id' | 'delivered_at' | 'read_at'>[] };
 type Receipt = { items: Pick<Message, 'id' | 'delivered_at' | 'read_at'>[] };
 const clockLabel = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-
-function VoiceNotePlayer({ src, onRequest, loading, label }: {src?: string; onRequest?: () => void; loading?: boolean; label: string}) {
-  const audio = useRef<HTMLAudioElement>(null);
-  const requested = useRef(false);
-  const [playing, setPlaying] = useState(false);
-  const [current, setCurrent] = useState(0);
-  const [duration, setDuration] = useState(0);
-  useEffect(() => {
-    setPlaying(false); setCurrent(0); setDuration(0);
-    if (src && requested.current) { requested.current = false; void audio.current?.play().catch(() => undefined); }
-  }, [src]);
-  function toggle() {
-    if (!src) { requested.current = true; onRequest?.(); return; }
-    if (!audio.current) return;
-    if (audio.current.paused) void audio.current.play().catch(() => undefined);
-    else audio.current.pause();
-  }
-  return <div className="chat-voice-player"><audio ref={audio} src={src} preload="metadata" aria-label={label}
-    onLoadedMetadata={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
-    onTimeUpdate={event => setCurrent(event.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
-    <button type="button" className="chat-voice-toggle" disabled={loading} onClick={toggle} aria-label={t(playing ? 'Pausar nota de voz' : 'Reproducir nota de voz')}>{playing ? <Pause size={19} /> : <Play size={19} />}</button>
-    <span className="chat-voice-times">{clockLabel(Math.floor(current))}/{clockLabel(Math.floor(duration))}</span>
-    <div className="chat-voice-timeline"><span aria-hidden="true">{[4,9,14,6,18,11,5,20,12,7,16,10,4,13,19,6,12,8,17,5,15,10,6,12].map((height, index) => <i key={index} className={duration && index / 24 <= current / duration ? 'played' : ''} style={{height}} />)}</span><input type="range" min="0" max={duration || 1} step="0.1" value={Math.min(current, duration || 0)} disabled={!src || !duration} aria-label={t('Avanzar nota de voz')} onChange={event => { if (audio.current) { audio.current.currentTime = Number(event.target.value); setCurrent(audio.current.currentTime); } }} /></div>
-    <label className="chat-voice-volume" title={t('Volumen de la nota de voz')}><Volume2 size={17} /><input type="range" min="0" max="1" step="0.05" defaultValue="1" aria-label={t('Volumen de la nota de voz')} onChange={event => { if (audio.current) audio.current.volume = Number(event.target.value); }} /></label>
-  </div>;
-}
 
 export function Chat({ userId, conversationId, onStarted, onOpened, selfId, organizationId, onContacts, onVoiceSelection }: { userId?: string; conversationId?: string; onStarted: () => void; onOpened: () => void; selfId: string; organizationId: string; onContacts: () => void; onVoiceSelection: (value?: { id: string; name: string }) => void }) {
   useLanguage();
@@ -523,19 +496,27 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
         {searchResults && <div className="chat-search-results" role="status"><strong>{t('Resultados: {count}', {count: searchResults.length})}</strong>{searchResults.map(item => <div key={item.id}><span>{item.body || item.attachment?.name}</span><small>{new Date(item.created_at).toLocaleString(formatLocale(), {timeZone:'America/Bogota'})}</small></div>)}</div>}
         {pinnedMessages.length > 0 && <details className="chat-pinned"><summary><Pin size={15} /><strong>{t('Fijados')}</strong><span>{t('{count} mensajes', {count: pinnedMessages.length})}</span><ChevronDown size={17} /></summary><ul>{pinnedMessages.map(item => <li key={item.id}><span>{item.body || item.attachment?.name}</span><button type="button" className="chat-icon-button" title={t('Ir al mensaje')} aria-label={t('Ir al mensaje')} onClick={() => void jumpToMessage(item)}><Eye size={17} /></button></li>)}</ul></details>}
         {before && <button className="chat-older" type="button" onClick={() => void older()}>{t('Ver mensajes anteriores')}</button>}
-        <ol className="chat-messages">{messages.map(message => <li key={message.id} id={`chat-message-${message.id}`} data-message-id={!message.system_kind && message.sender_id !== selfId && !message.read_at ? message.id : undefined} className={message.system_kind ? 'chat-call-event-row' : message.sender_id === selfId ? 'mine' : ''}>
-          {message.system_kind ? <div className="chat-call-event"><Phone size={17} /><span><strong>{t(message.system_kind === 'call_missed' ? 'Llamada perdida' : 'Llamada finalizada')}</strong>{message.call_duration_seconds ? <small>{clockLabel(message.call_duration_seconds)}</small> : null}</span><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString(formatLocale(), {timeZone:'America/Bogota'})}</time></div> : <>
-          <div className="chat-bubble">
-            <details className="chat-message-menu"><summary aria-label={t('Opciones del mensaje')} title={t('Opciones del mensaje')}><ChevronDown size={17} /></summary><div><button type="button" onClick={() => void togglePin(message)}><Pin size={15} fill={message.pinned ? 'currentColor' : 'none'} />{t(message.pinned ? 'Desfijar mensaje' : 'Fijar mensaje')}</button><button type="button" onClick={() => { draftGenerationRef.current++; setPendingId(undefined); setReplyTo(message); bodyInputRef.current?.focus(); }}><Reply size={15} />{t('Responder mensaje')}</button><button type="button" onClick={() => setRemoveMessage(message)}><Trash2 size={15} />{t(message.sender_id === selfId ? 'Borrar para todos' : 'Borrar para mí')}</button>{message.attachment && <button type="button" onClick={() => void download(message)}><Download size={15} />{t('Descargar')}</button>}</div></details>
-            {message.reply_to_id && <div className="chat-reply-quote"><Reply size={14} /><span>{messages.find(item => item.id === message.reply_to_id)?.body || t('Mensaje anterior')}</span></div>}
-            {message.body && <><p className={message.body.length > 480 && !expandedMessages.has(message.id) ? 'chat-text-collapsed' : ''}>{message.body}</p>{message.body.length > 480 && <button type="button" className="chat-expand-text" onClick={() => setExpandedMessages(current => { const next = new Set(current); if (next.has(message.id)) next.delete(message.id); else next.add(message.id); return next; })}>{expandedMessages.has(message.id) ? <ChevronUp size={16} /> : <ChevronDown size={16} />}{t(expandedMessages.has(message.id) ? 'Mostrar menos' : 'Mostrar más')}</button>}</>}
-            {message.attachment?.mime.startsWith('image/') && <button type="button" className="chat-image-card" aria-label={t('Ampliar imagen {name}', {name: message.attachment.name})} onClick={() => { setImageViewer(message); setImageZoom(1); }}>{imagePreviews[message.id] ? <img src={imagePreviews[message.id]} alt={message.attachment.name} /> : <span><ImageIcon size={20} />{message.attachment.name}</span>}</button>}
-            {message.attachment?.mime.startsWith('audio/') && <VoiceNotePlayer key={message.id} src={audioPlayback?.messageId === message.id ? audioPlayback.url : undefined} onRequest={() => void playVoice(message)} loading={downloading === message.id} label={t('Nota de voz de {name}', {name: message.sender_id === selfId ? t('Tú') : selected.contact.name})} />}
-            {message.attachment && !message.attachment.mime.startsWith('image/') && !message.attachment.mime.startsWith('audio/') && <button type="button" className="chat-file-card" disabled={!!downloading} onClick={() => void download(message)}><FileText size={20} /><span>{message.attachment.name}<small>{(message.attachment.bytes / 1024 / 1024).toFixed(1)} MB</small></span><Download size={17} /></button>}
-            <div className="chat-bubble-meta"><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString(formatLocale(), {timeZone:'America/Bogota'})}</time><span>{t(message.sender_id === selfId ? message.read_at ? 'Leído' : message.delivered_at ? 'Entregado' : 'Enviado' : 'Recibido')}</span></div>
-          </div>
-          </>}
-        </li>)}</ol>
+        <ChatMessageList
+          messages={messages}
+          selfId={selfId}
+          contactName={selected.contact.name}
+          audioPlayback={audioPlayback}
+          downloading={downloading}
+          imagePreviews={imagePreviews}
+          expandedMessages={expandedMessages}
+          onTogglePin={message => { void togglePin(message); }}
+          onReply={message => { draftGenerationRef.current++; setPendingId(undefined); setReplyTo(message); bodyInputRef.current?.focus(); }}
+          onRequestRemoval={setRemoveMessage}
+          onDownload={message => { void download(message); }}
+          onPlayVoice={message => { void playVoice(message); }}
+          onOpenImage={message => { setImageViewer(message); setImageZoom(1); }}
+          onToggleExpanded={message => setExpandedMessages(current => {
+            const next = new Set(current);
+            if (next.has(message.id)) next.delete(message.id);
+            else next.add(message.id);
+            return next;
+          })}
+        />
         <form className="chat-composer" onSubmit={send}>
           {replyTo && <div className="chat-draft-reply"><Reply size={16} /><span>{t('Respondiendo a')} <strong>{replyTo.body || replyTo.attachment?.name}</strong></span><button type="button" aria-label={t('Cancelar respuesta')} onClick={() => { draftGenerationRef.current++; setPendingId(undefined); setReplyTo(undefined); }}><X size={17} /></button></div>}
           {file && <div className="chat-attachment-preview"><div className="chat-preview-info">{file.type.startsWith('image/') ? <ImageIcon size={19} /> : <FileText size={19} />}<span>{file.name}<small>{(file.size / 1024 / 1024).toFixed(1)} MB</small></span><button type="button" aria-label={t('Cancelar adjunto')} disabled={busy || recording} onClick={() => { setFile(undefined); setPendingId(undefined); setSendError(undefined); }}><X size={18} /></button></div>{filePreview && (/\.(png|jpe?g|webp)$/i.test(file.name) ? filePreviewError ? <p className="muted">{t('No se pudo mostrar la vista previa de la imagen.')}</p> : <img src={filePreview} alt={t('Vista previa del adjunto')} onError={() => setFilePreviewError(true)} /> : <VoiceNotePlayer src={filePreview} label={t('Vista previa de la nota de voz')} />)}</div>}

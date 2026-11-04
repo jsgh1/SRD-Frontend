@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from './api';
 import { setLanguage } from './i18n';
@@ -11,6 +11,10 @@ vi.mock('./api', async importOriginal => {
 
 const apiMock = vi.mocked(api);
 const emptyConversationPage = { items: [], page: 1, page_size: 25, total: 0 };
+const originalShowModal = HTMLDialogElement.prototype.showModal;
+const originalCloseDialog = HTMLDialogElement.prototype.close;
+const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+let scrollIntoViewMock: ReturnType<typeof vi.fn>;
 
 function renderChat() {
   return render(
@@ -39,9 +43,11 @@ type TestMessage = {
   sequence: number;
   sender_id: string;
   body: string;
-  attachment: null;
-  reply_to_id: null;
+  attachment: { id: string; name: string; mime: string; bytes: number } | null;
+  reply_to_id: string | null;
   pinned: boolean;
+  system_kind?: 'call_missed' | 'call_ended' | null;
+  call_duration_seconds?: number | null;
   created_at: string;
   delivered_at: string | null;
   read_at: string | null;
@@ -60,6 +66,7 @@ function configureConversationHistories(
   loadHistory: (conversationId: string, attempts: number) => Promise<unknown> = async conversationId => ({
     items: histories[conversationId] || [], next_before: null, next_after: null, receipts: [],
   }),
+  loadAttachment: (conversationId: string, messageId: string) => Promise<unknown> = async () => Promise.reject(new Error('No attachment in fixture.')),
 ) {
   const attempts = new Map<string, number>();
   apiMock.mockImplementation(((path: string, method = 'GET') => {
@@ -70,6 +77,11 @@ function configureConversationHistories(
     if (path.startsWith('contacts/')) return Promise.resolve({ name: 'Contacto de prueba', presence: 'online' });
     if (path.endsWith('/pinned')) return Promise.resolve({ items: [] });
     if (path.includes('/activity') || path.endsWith('/receipts')) return Promise.resolve({ items: [] });
+    const attachment = path.match(/^conversations\/([^/]+)\/messages\/([^/]+)\/attachment$/);
+    if (attachment) return loadAttachment(attachment[1], attachment[2]);
+    if (/^conversations\/[^/]+\/messages\/[^/]+\/pin$/.test(path)) return Promise.resolve({ pinned: true });
+    if (/^conversations\/[^/]+\/messages\/[^/]+$/.test(path) && method === 'DELETE') return Promise.resolve({});
+    if (/^conversations\/[^/]+\/messages$/.test(path) && method === 'DELETE') return Promise.resolve({});
     const history = path.match(/^conversations\/([^/]+)\/messages(?:\?.*)?$/);
     if (history) {
       const conversationId = history[1];
@@ -85,6 +97,10 @@ function configureConversationHistories(
 beforeEach(() => {
   apiMock.mockReset();
   setLanguage('es');
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.setAttribute('open', ''); } });
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.removeAttribute('open'); } });
+  scrollIntoViewMock = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoViewMock });
   vi.stubGlobal('IntersectionObserver', class {
     observe() {}
     disconnect() {}
@@ -94,6 +110,12 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  if (originalShowModal) Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value: originalShowModal });
+  else Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal');
+  if (originalCloseDialog) Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value: originalCloseDialog });
+  else Reflect.deleteProperty(HTMLDialogElement.prototype, 'close');
+  if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: originalScrollIntoView });
+  else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
   setLanguage('es');
 });
 
@@ -194,7 +216,7 @@ describe('Chat conversation history', () => {
     fireEvent.click(screen.getByRole('button', { name: /Camila Prueba/ }));
     await screen.findByText('Mensaje propio después');
 
-    const rows = Array.from(container.querySelectorAll('.chat-messages > li'));
+    const rows = Array.from(container.querySelectorAll<HTMLLIElement>('.chat-messages > li'));
     expect(rows).toHaveLength(2);
     expect(rows[0].textContent).toContain('Mensaje recibido primero');
     expect(rows[0].classList.contains('mine')).toBe(false);
@@ -432,5 +454,204 @@ describe('Chat conversation list characterization P43', () => {
 
     expect(container.querySelectorAll('.chat-conversations > li')).toHaveLength(2);
     expect(container.querySelectorAll('.chat-conversations button[aria-current="true"]')).toHaveLength(0);
+  });
+});
+
+describe('Chat message presentation characterization P43', () => {
+  const conversation: TestConversation = {
+    id: 'conversation-rich', contact: { id: 'contact-rich', name: 'Camila Mensajes' }, updated_at: '2026-11-03T12:00:00Z',
+  };
+  const anotherConversation: TestConversation = {
+    id: 'conversation-other', contact: { id: 'contact-other', name: 'Diego Mensajes' }, updated_at: '2026-11-03T12:01:00Z',
+  };
+  const attachment = (id: string, name: string, mime: string) => ({ id, name, mime, bytes: 2048 });
+
+  function renderRichChat() {
+    return render(<Chat
+      selfId="user-1"
+      organizationId="org-1"
+      onStarted={vi.fn()}
+      onOpened={vi.fn()}
+      onContacts={vi.fn()}
+      onVoiceSelection={vi.fn()}
+    />);
+  }
+
+  it('renders ordered text, call, reply, image, voice, and document messages with accessible actions', async () => {
+    const base = testMessage('base', 1, 'contact-rich', 'Mensaje base para responder', {
+      delivered_at: '2026-11-03T12:01:00Z', read_at: null,
+    });
+    const reply = { ...testMessage('reply', 2, 'user-1', 'Respuesta citada'), reply_to_id: 'base' };
+    const longText = testMessage('long', 3, 'user-1', 'Texto largo '.repeat(50));
+    const call = { ...testMessage('call', 4, 'contact-rich', ''), system_kind: 'call_ended' as const, call_duration_seconds: 125 };
+    const image = { ...testMessage('image', 5, 'contact-rich', ''), attachment: attachment('image', 'foto.png', 'image/png'), delivered_at: '2026-11-03T12:02:00Z', read_at: '2026-11-03T12:03:00Z' };
+    const voice = { ...testMessage('voice', 6, 'contact-rich', ''), attachment: attachment('voice', 'nota.wav', 'audio/wav'), delivered_at: '2026-11-03T12:04:00Z', read_at: '2026-11-03T12:05:00Z' };
+    const document = { ...testMessage('document', 7, 'user-1', ''), attachment: attachment('document', 'acta.pdf', 'application/pdf') };
+    configureConversationHistories([conversation], { [conversation.id]: [document, voice, image, call, longText, reply, base] }, undefined, async (_conversationId, messageId) => ({
+      id: messageId, name: messageId === 'image' ? 'foto.png' : messageId === 'voice' ? 'nota.wav' : 'acta.pdf',
+      mime: messageId === 'image' ? 'image/png' : messageId === 'voice' ? 'audio/wav' : 'application/pdf',
+      bytes: 2048, content: messageId === 'image' ? 'aW1hZ2U=' : 'YXVkaW8=',
+    }));
+    const play = vi.fn().mockResolvedValue(undefined);
+    const createObjectURL = vi.fn().mockReturnValue('blob:chat-audio');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+    Object.defineProperty(HTMLMediaElement.prototype, 'play', { configurable: true, value: play });
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    const { container } = renderRichChat();
+    fireEvent.click(await screen.findByRole('button', { name: /Camila Mensajes/ }));
+    expect(await screen.findByText('Llamada finalizada')).toBeTruthy();
+    const rows = Array.from(container.querySelectorAll<HTMLLIElement>('.chat-messages > li'));
+    expect(rows.map(row => row.id)).toEqual([
+      'chat-message-base', 'chat-message-reply', 'chat-message-long', 'chat-message-call',
+      'chat-message-image', 'chat-message-voice', 'chat-message-document',
+    ]);
+    expect(rows[0].getAttribute('data-message-id')).toBe('base');
+    expect(rows[1].classList.contains('mine')).toBe(true);
+    expect(rows[3].querySelector('[data-message-id]')).toBeNull();
+    expect(rows[0].querySelector('.chat-bubble p')?.textContent).toBe('Mensaje base para responder');
+    expect(rows[1].querySelector('.chat-reply-quote')?.textContent).toContain('Mensaje base para responder');
+    expect(screen.getByText('2:05')).toBeTruthy();
+    expect(rows[2].querySelector('p')?.classList.contains('chat-text-collapsed')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar más' }));
+    expect(rows[2].querySelector('p')?.classList.contains('chat-text-collapsed')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar menos' }));
+    expect(rows[2].querySelector('p')?.classList.contains('chat-text-collapsed')).toBe(true);
+
+    const menu = rows[0].querySelector('summary[aria-label="Opciones del mensaje"]');
+    expect(menu).toBeTruthy();
+    fireEvent.click(menu!);
+    expect(within(rows[0]).getByRole('button', { name: 'Responder mensaje' })).toBeTruthy();
+    expect(within(rows[0]).getByRole('button', { name: 'Borrar para mí' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Ampliar imagen foto.png' }));
+    const imageDialog = await screen.findByRole('dialog');
+    expect(within(imageDialog).getByRole('img', { name: 'foto.png' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Ampliar' }));
+    expect(screen.getByText('150%')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reproducir nota de voz' }));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(`conversations/${conversation.id}/messages/voice/attachment`));
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
+    expect(play).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /acta\.pdf/ }));
+    await waitFor(() => expect(anchorClick).toHaveBeenCalled());
+    expect(apiMock).toHaveBeenCalledWith(`conversations/${conversation.id}/messages/document/attachment`);
+  });
+
+  it('preserves pin navigation, reply cancellation, and owner-specific message deletion', async () => {
+    const received = testMessage('received', 1, 'contact-rich', 'Mensaje recibido', { delivered_at: '2026-11-03T12:01:00Z', read_at: null });
+    const own = testMessage('own', 2, 'user-1', 'Mensaje propio', { delivered_at: '2026-11-03T12:02:00Z', read_at: null });
+    configureConversationHistories([conversation], { [conversation.id]: [received, own] });
+    const scrollIntoView = scrollIntoViewMock;
+
+    const { container } = renderRichChat();
+    fireEvent.click(await screen.findByRole('button', { name: /Camila Mensajes/ }));
+    await screen.findByText('Mensaje propio');
+
+    const receivedRow = container.querySelector<HTMLLIElement>('#chat-message-received')!;
+    fireEvent.click(receivedRow.querySelector('summary')!);
+    fireEvent.click(within(receivedRow).getByRole('button', { name: 'Fijar mensaje' }));
+    expect(await screen.findByText('Fijados')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Ir al mensaje' }));
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+
+    const ownRow = container.querySelector<HTMLLIElement>('#chat-message-own')!;
+    fireEvent.click(ownRow.querySelector('summary')!);
+    fireEvent.click(within(ownRow).getByRole('button', { name: 'Responder mensaje' }));
+    expect(screen.getByText('Respondiendo a')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar respuesta' }));
+    expect(screen.queryByText('Respondiendo a')).toBeNull();
+
+    fireEvent.click(within(receivedRow).getByRole('button', { name: 'Borrar para mí' }));
+    const receivedDialog = screen.getByRole('dialog');
+    expect(within(receivedDialog).getByText('Este mensaje dejará de aparecer solo en tu cuenta.')).toBeTruthy();
+    fireEvent.click(within(receivedDialog).getByRole('button', { name: 'Borrar para mí' }));
+    await waitFor(() => expect(container.querySelector('#chat-message-received')).toBeNull());
+    expect(apiMock).toHaveBeenCalledWith(`conversations/${conversation.id}/messages/received`, 'DELETE');
+
+    fireEvent.click(within(ownRow).getByRole('button', { name: 'Borrar para todos' }));
+    const ownDialog = screen.getByRole('dialog');
+    expect(within(ownDialog).getByText('Este mensaje dejará de aparecer para ambos participantes.')).toBeTruthy();
+    fireEvent.click(within(ownDialog).getByRole('button', { name: 'Borrar para todos' }));
+    await waitFor(() => expect(container.querySelector('#chat-message-own')).toBeNull());
+    expect(apiMock).toHaveBeenCalledWith(`conversations/${conversation.id}/messages/own`, 'DELETE');
+
+  });
+
+  it('sends one read receipt for visible unread messages and disconnects observers', async () => {
+    const unread = testMessage('unread', 1, 'contact-rich', 'Mensaje pendiente de lectura');
+    apiMock.mockImplementation(((path: string, method = 'GET', body?: { kind?: string }) => {
+      if (path === 'chat/broadcast-config') return Promise.reject(new Error('Realtime transport unavailable in this test.'));
+      if (path === `conversations?page=1`) return Promise.resolve({ items: [conversation], page: 1, page_size: 25, total: 1 });
+      if (path.startsWith('users/') && path.endsWith('/photos/avatar')) return Promise.reject(new Error('No avatar in fixture.'));
+      if (path.startsWith('contacts/')) return Promise.resolve({ name: 'Camila', presence: 'online', person_id: null });
+      if (path.endsWith('/pinned')) return Promise.resolve({ items: [] });
+      if (path === `conversations/${conversation.id}/messages`) return Promise.resolve({ items: [unread], next_before: null, next_after: null, receipts: [] });
+      if (path.endsWith('/receipts') && method === 'POST') {
+        return Promise.resolve({ items: body?.kind === 'read' ? [{ id: unread.id, delivered_at: '2026-11-03T12:01:00Z', read_at: '2026-11-03T12:02:00Z' }] : [] });
+      }
+      if (path.includes('/activity')) return Promise.resolve({ items: [] });
+      throw new Error(`Unexpected API request: ${method} ${path}`);
+    }) as unknown as typeof api);
+
+    const disconnect = vi.fn();
+    vi.stubGlobal('IntersectionObserver', class {
+      private callback: IntersectionObserverCallback;
+      constructor(callback: IntersectionObserverCallback) { this.callback = callback; }
+      observe(target: Element) { this.callback([{ target, isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry], this as unknown as IntersectionObserver); }
+      unobserve() {}
+      disconnect = disconnect;
+      takeRecords() { return []; }
+      root = null;
+      rootMargin = '0px';
+      thresholds = [0.5];
+    });
+
+    const view = renderRichChat();
+    fireEvent.click(await screen.findByRole('button', { name: /Camila Mensajes/ }));
+    await screen.findByText('Mensaje pendiente de lectura');
+    await waitFor(() => expect(apiMock.mock.calls.filter(([path, method, body]) => path.endsWith('/receipts') && method === 'POST' && (body as {kind?: string})?.kind === 'read')).toHaveLength(1));
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(apiMock.mock.calls.filter(([path, method, body]) => path.endsWith('/receipts') && method === 'POST' && (body as {kind?: string})?.kind === 'read')).toHaveLength(1);
+    view.unmount();
+    expect(disconnect).toHaveBeenCalled();
+  });
+
+  it('ignores a previous conversation history that resolves after the user changes threads', async () => {
+    let resolveFirst!: (value: unknown) => void;
+    const firstHistory = new Promise(resolve => { resolveFirst = resolve; });
+    configureConversationHistories([conversation, anotherConversation], {
+      [conversation.id]: [], [anotherConversation.id]: [testMessage('new-thread', 1, 'contact-other', 'Solo mensaje de la conversación nueva')],
+    }, async conversationId => conversationId === conversation.id ? firstHistory : ({
+      items: [testMessage('new-thread', 1, 'contact-other', 'Solo mensaje de la conversación nueva')], next_before: null, next_after: null, receipts: [],
+    }));
+
+    const { container } = renderRichChat();
+    fireEvent.click(await screen.findByRole('button', { name: /Camila Mensajes/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Diego Mensajes/ }));
+    expect(await screen.findByText('Solo mensaje de la conversación nueva')).toBeTruthy();
+    resolveFirst({ items: [testMessage('old-thread', 1, 'contact-rich', 'Mensaje tardío del contacto anterior')], next_before: null, next_after: null, receipts: [] });
+    await act(async () => { await firstHistory; });
+    expect(container.querySelector('.chat-messages')?.textContent).not.toContain('Mensaje tardío del contacto anterior');
+    expect(container.querySelector('.chat-messages')?.textContent).toContain('Solo mensaje de la conversación nueva');
+  });
+
+  it('releases a generated voice-preview URL when switching conversations', async () => {
+    configureConversationHistories([conversation, anotherConversation], { [conversation.id]: [], [anotherConversation.id]: [] });
+    const createObjectURL = vi.fn().mockReturnValue('blob:voice-preview');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+
+    const { container } = renderRichChat();
+    fireEvent.click(await screen.findByRole('button', { name: /Camila Mensajes/ }));
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, { target: { files: [new File(['voice'], 'nota.wav', { type: 'audio/wav' })] } });
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
+    expect(screen.getByLabelText('Vista previa de la nota de voz')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Diego Mensajes/ }));
+    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith('blob:voice-preview'));
   });
 });
