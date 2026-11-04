@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import Pusher from 'pusher-js';
 import { ApiError, api, roleNames } from './api';
+import { reportAuthorizationLoss } from './chatAuthorization';
 import { Empty, ErrorBox, Loading } from './ui';
 import { formatLocale, localizedLabel, t, useLanguage } from './i18n';
 import { ContactAvatar } from './ContactAvatar';
 import { mergeMessages, mergeReceipts, withReceipt } from './chatMessageMerge';
 import { useChatVoiceRecorder } from './useChatVoiceRecorder';
+import { useChatRealtime } from './useChatRealtime';
 import { Check, ChevronDown, ChevronUp, Download, Eye, FileText, Image as ImageIcon, Mic, Pause, Paperclip, Phone, Pin, Play, Reply, Search, Send, Trash2, Volume2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { Modal } from './ui';
 
@@ -45,14 +46,9 @@ function VoiceNotePlayer({ src, onRequest, loading, label }: {src?: string; onRe
   </div>;
 }
 
-function reportAuthorizationLoss(error: unknown) {
-  if (error instanceof ApiError && [401, 403].includes(error.status)) {
-    document.dispatchEvent(new Event('srd-chat-auth-lost'));
-  }
-}
-
 export function Chat({ userId, conversationId, onStarted, onOpened, selfId, organizationId, onContacts, onVoiceSelection }: { userId?: string; conversationId?: string; onStarted: () => void; onOpened: () => void; selfId: string; organizationId: string; onContacts: () => void; onVoiceSelection: (value?: { id: string; name: string }) => void }) {
   useLanguage();
+  useChatRealtime(selfId, organizationId);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationPage, setConversationPage] = useState(1);
   const [conversationTotal, setConversationTotal] = useState(0);
@@ -218,56 +214,6 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
     }
   }, [selected?.id, messages]);
   useEffect(() => { setAudioPlayback(undefined); }, [selected?.id]);
-
-  useEffect(() => {
-    let active = true;
-    let socket: Pusher | undefined;
-    let stopped = false;
-    let connecting = false;
-    let generation = 0;
-    const disconnect = () => {
-      generation++;
-      connecting = false;
-      socket?.disconnect();
-      socket = undefined;
-    };
-    const stop = () => { stopped = true; disconnect(); };
-    const connect = () => {
-      if (!active || stopped || document.hidden || socket || connecting) return;
-      connecting = true;
-      const attempt = ++generation;
-      void api<{ key: string; channel: string }>('chat/broadcast-config').then(value => {
-        if (!active || stopped || document.hidden || attempt !== generation) return;
-        const port = Number(window.location.port) || (window.location.protocol === 'https:' ? 443 : 80);
-        socket = new Pusher(value.key, {
-          cluster: 'mt1', wsHost: window.location.hostname, wsPort: port, wssPort: port,
-          forceTLS: window.location.protocol === 'https:', enabledTransports: ['ws', 'wss'],
-          channelAuthorization: { customHandler: (params, callback) => {
-            void api<{ auth: string; channel_data: string }>('chat/broadcast-auth', 'POST', {
-              socket_id: params.socketId, channel_name: params.channelName,
-            }).then(auth => callback(null, auth)).catch(error => {
-              if (active && attempt === generation) reportAuthorizationLoss(error);
-              callback(error instanceof Error ? error : new Error('No se pudo autorizar Chat.'), null);
-            });
-          } },
-        });
-        socket.subscribe(value.channel).bind('chat.changed', () => {
-          document.dispatchEvent(new Event('srd-chat-change'));
-        });
-      }).catch(error => { if (active && attempt === generation) reportAuthorizationLoss(error); /* El sondeo recupera la conexión indisponible. */ })
-        .finally(() => { if (attempt === generation) connecting = false; });
-    };
-    const onVisibility = () => { if (document.hidden) disconnect(); else connect(); };
-    document.addEventListener('srd-chat-auth-lost', stop);
-    document.addEventListener('visibilitychange', onVisibility);
-    connect();
-    return () => {
-      active = false;
-      document.removeEventListener('srd-chat-auth-lost', stop);
-      document.removeEventListener('visibilitychange', onVisibility);
-      disconnect();
-    };
-  }, [selfId]);
 
   async function confirmDelivered(conversationId: string, fetched: Message[]) {
     const ids = fetched.filter(message => message.sender_id !== selfId && !message.delivered_at && !deliveredIds.current.has(message.id)).map(message => message.id);
