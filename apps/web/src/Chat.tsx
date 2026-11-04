@@ -7,17 +7,16 @@ import { ContactAvatar } from './ContactAvatar';
 import { mergeMessages, mergeReceipts, withReceipt } from './chatMessageMerge';
 import { useChatVoiceRecorder } from './useChatVoiceRecorder';
 import { useChatRealtime } from './useChatRealtime';
+import { ChatConversationList } from './ChatConversationList';
+import { activityLabels, presenceLabels, type Conversation } from './chatTypes';
 import { Check, ChevronDown, ChevronUp, Download, Eye, FileText, Image as ImageIcon, Mic, Pause, Paperclip, Phone, Pin, Play, Reply, Search, Send, Trash2, Volume2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { Modal } from './ui';
 
-type Conversation = { id: string; contact: { id: string; name: string }; contact_activity?: 'typing' | 'recording' | 'calling' | null; updated_at: string };
 type ConversationPage = { items: Conversation[]; page: number; page_size: number; total: number };
 type ChatAttachment = { id: string; name: string; mime: string; bytes: number };
 type Message = { id: string; sequence: number; sender_id: string; body: string; attachment: ChatAttachment | null; reply_to_id: string | null; pinned: boolean; system_kind?: 'call_missed' | 'call_ended' | null; call_duration_seconds?: number | null; created_at: string; delivered_at: string | null; read_at: string | null };
 type History = { items: Message[]; next_before: number | null; next_after: number | null; removed_ids?: string[]; receipts: Pick<Message, 'id' | 'delivered_at' | 'read_at'>[] };
 type Receipt = { items: Pick<Message, 'id' | 'delivered_at' | 'read_at'>[] };
-const presenceLabels: Record<string, string> = { online: 'En línea', away: 'Ausente', dnd: 'No molestar', invisible: 'Desconectado', offline: 'Desconectado' };
-const activityLabels: Record<string, string> = { typing: 'Escribiendo…', recording: 'Grabando una nota de voz…', calling: 'Llamando…' };
 const clockLabel = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
 function VoiceNotePlayer({ src, onRequest, loading, label }: {src?: string; onRequest?: () => void; loading?: boolean; label: string}) {
@@ -494,11 +493,21 @@ export function Chat({ userId, conversationId, onStarted, onOpened, selfId, orga
     <div className="page-heading"><div><h1>{t('Chat de la junta')}</h1><p className="muted">{t('Conversaciones privadas entre cuentas de la junta activa.')}</p></div><button type="button" onClick={onContacts}>{t('Buscar contacto')}</button></div>
     <ErrorBox error={error} />
     <div className={`chat-layout${selected ? ' has-conversation' : ''}`}>
-      <section className="panel chat-sidebar" aria-label={t('Conversaciones')}>
-        <h2>{t('Conversaciones')}</h2>
-        {loading ? <Loading /> : conversationError ? <button type="button" onClick={() => { setLoading(true); setRefresh(value => value + 1); }}>{t('Reintentar conversaciones')}</button> : conversations.length ? <ul className="chat-conversations">{conversations.map(item => <li key={item.id}><button type="button" aria-current={selected?.id === item.id ? 'true' : undefined} onClick={() => selectConversation(item)}><ContactAvatar organizationId={organizationId} userId={item.contact.id} name={item.contact.name} /><span className="chat-conversation-label"><strong>{item.contact.name}</strong><small className={item.contact_activity ? 'chat-activity' : 'presence-status'} data-state={contactPresences[item.contact.id] || 'offline'}>{item.contact_activity ? t(activityLabels[item.contact_activity]) : <><span aria-hidden="true">●</span> {t(presenceLabels[contactPresences[item.contact.id]] || 'Desconectado')}</>}</small></span></button></li>)}</ul> : <Empty title={t('Sin conversaciones')}>{t('Busca un contacto para iniciar una conversación.')}</Empty>}
-        {conversationTotal > conversationPageSize && <div className="actions"><button type="button" disabled={loading || conversationPage <= 1} onClick={() => { setLoading(true); setConversationPage(page => page - 1); }}>{t('Conversaciones anteriores')}</button><span>{t('Página {page} de {pages}', {page: conversationPage, pages: Math.ceil(conversationTotal / conversationPageSize)})}</span><button type="button" disabled={loading || conversationPage * conversationPageSize >= conversationTotal} onClick={() => { setLoading(true); setConversationPage(page => page + 1); }}>{t('Conversaciones siguientes')}</button></div>}
-      </section>
+      <ChatConversationList
+        conversations={conversations}
+        selectedId={selected?.id}
+        loading={loading}
+        error={conversationError}
+        page={conversationPage}
+        total={conversationTotal}
+        pageSize={conversationPageSize}
+        contactPresences={contactPresences}
+        organizationId={organizationId}
+        onSelect={selectConversation}
+        onRetry={() => { setLoading(true); setRefresh(value => value + 1); }}
+        onPreviousPage={() => { setLoading(true); setConversationPage(page => page - 1); }}
+        onNextPage={() => { setLoading(true); setConversationPage(page => page + 1); }}
+      />
       <section className="panel chat-thread" aria-label={t('Mensajes')}>{selected ? <>
         <header className="chat-contact-heading">
           <button type="button" className="chat-contact-profile" onClick={() => setContactOpen(true)} aria-label={t('Ver perfil de {name}', {name: selected.contact.name})}><ContactAvatar organizationId={organizationId} userId={selected.contact.id} name={selected.contact.name} /><span className="chat-contact-name"><strong>{selected.contact.name}</strong>{selectedActivity ? <span className="chat-activity">{t(activityLabels[selectedActivity])}</span> : <span className="presence-status" data-state={contactDetails?.presence || 'offline'}><span aria-hidden="true">●</span> {t(presenceLabels[contactDetails?.presence || 'offline'])}</span>}</span></button>
