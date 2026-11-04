@@ -33,7 +33,7 @@ function configureEmptyList() {
   }) as unknown as typeof api);
 }
 
-type TestConversation = { id: string; contact: { id: string; name: string }; updated_at: string };
+type TestConversation = { id: string; contact: { id: string; name: string }; contact_activity?: 'typing' | 'recording' | 'calling' | null; updated_at: string };
 type TestMessage = {
   id: string;
   sequence: number;
@@ -272,5 +272,165 @@ describe('Chat conversation history', () => {
     expect(rows[1].querySelector('.chat-bubble-meta span')?.textContent).toBe('Entregado');
     expect(rows[2].querySelector('.chat-bubble-meta span')?.textContent).toBe('Enviado');
     expect(attempts.get(first.id)).toBe(2);
+  });
+});
+
+describe('Chat conversation list characterization P43', () => {
+  const listConversation = (id: string, name: string, contact_activity?: TestConversation['contact_activity']): TestConversation => ({
+    id, contact: { id: `contact-${id}`, name }, contact_activity, updated_at: '2026-11-03T12:00:00Z',
+  });
+
+  it('shows a loading status until the conversation page resolves', async () => {
+    let resolvePage!: (value: unknown) => void;
+    const pendingPage = new Promise(resolve => { resolvePage = resolve; });
+    apiMock.mockImplementation(((path: string) => {
+      if (path === 'chat/broadcast-config') return Promise.reject(new Error('Realtime transport unavailable in this test.'));
+      if (path === 'conversations?page=1') return pendingPage;
+      if (path.startsWith('users/') && path.endsWith('/photos/avatar')) return Promise.reject(new Error('No avatar in fixture.'));
+      if (path.startsWith('contacts/')) return Promise.resolve({ name: 'Contacto cargado', presence: 'online', person_id: null });
+      throw new Error(`Unexpected API request: ${path}`);
+    }) as unknown as typeof api);
+
+    renderChat();
+    expect(screen.getByRole('status').textContent).toContain('Cargando información');
+
+    resolvePage({ items: [listConversation('loaded', 'Ana Cargada')], page: 1, page_size: 25, total: 1 });
+    expect(await screen.findByRole('button', { name: /Ana Cargada/ })).toBeTruthy();
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('renders presence states and activity text with accessible contact names', async () => {
+    const conversations = [
+      listConversation('online', 'Ana En Línea'),
+      listConversation('away', 'Beto Ausente'),
+      listConversation('dnd', 'Cata No Molestar'),
+      listConversation('invisible', 'Dani Invisible'),
+      listConversation('offline', 'Eli Desconectado'),
+      listConversation('typing', 'Fabi Escribiendo', 'typing'),
+      listConversation('recording', 'Gabi Grabando', 'recording'),
+      listConversation('calling', 'Hugo Llamando', 'calling'),
+    ];
+    const states: Record<string, string> = { online: 'online', away: 'away', dnd: 'dnd', invisible: 'invisible', offline: 'offline' };
+    apiMock.mockImplementation(((path: string) => {
+      if (path === 'chat/broadcast-config') return Promise.reject(new Error('Realtime transport unavailable in this test.'));
+      if (path === 'conversations?page=1') return Promise.resolve({ items: conversations, page: 1, page_size: 25, total: conversations.length });
+      const contact = path.match(/^contacts\/contact-(.+)$/);
+      if (contact) return Promise.resolve({ name: 'Contacto de prueba', presence: states[contact[1]] || 'online', person_id: null });
+      if (path.startsWith('users/') && path.endsWith('/photos/avatar')) return Promise.reject(new Error('No avatar in fixture.'));
+      throw new Error(`Unexpected API request: ${path}`);
+    }) as unknown as typeof api);
+
+    const { container } = renderChat();
+
+    for (const name of ['Ana En Línea', 'Beto Ausente', 'Cata No Molestar', 'Dani Invisible', 'Eli Desconectado', 'Fabi Escribiendo', 'Gabi Grabando', 'Hugo Llamando']) {
+      expect(await screen.findByRole('button', { name: new RegExp(name) })).toBeTruthy();
+    }
+    expect(Array.from(container.querySelectorAll('.chat-conversations strong')).map(item => item.textContent)).toEqual([
+      'Ana En Línea', 'Beto Ausente', 'Cata No Molestar', 'Dani Invisible', 'Eli Desconectado',
+      'Fabi Escribiendo', 'Gabi Grabando', 'Hugo Llamando',
+    ]);
+    await waitFor(() => expect(container.querySelector('[data-state="dnd"]')).toBeTruthy());
+    const labels = Array.from(container.querySelectorAll('.chat-conversations .presence-status'));
+    expect(labels.map(label => label.getAttribute('data-state'))).toEqual(['online', 'away', 'dnd', 'invisible', 'offline']);
+    expect(labels.map(label => label.textContent?.replace('●', '').trim())).toEqual([
+      'En línea', 'Ausente', 'No molestar', 'Desconectado', 'Desconectado',
+    ]);
+    expect(container.querySelector('.chat-conversations .chat-activity')?.textContent).toBe('Escribiendo…');
+    expect(Array.from(container.querySelectorAll('.chat-conversations .chat-activity')).map(item => item.textContent)).toEqual([
+      'Escribiendo…', 'Grabando una nota de voz…', 'Llamando…',
+    ]);
+  });
+
+  it('paginates in both directions and does not mark an off-page selection as current', async () => {
+    const first = listConversation('page-one', 'Ana Primera Página');
+    const second = listConversation('page-two', 'Beto Segunda Página');
+    apiMock.mockImplementation(((path: string) => {
+      if (path === 'chat/broadcast-config') return Promise.reject(new Error('Realtime transport unavailable in this test.'));
+      if (path === 'conversations?page=1') return Promise.resolve({ items: [first], page: 1, page_size: 1, total: 2 });
+      if (path === 'conversations?page=2') return Promise.resolve({ items: [second], page: 2, page_size: 1, total: 2 });
+      if (path.startsWith('users/') && path.endsWith('/photos/avatar')) return Promise.reject(new Error('No avatar in fixture.'));
+      if (path.startsWith('contacts/')) return Promise.resolve({ name: 'Contacto', presence: 'online', person_id: null });
+      if (path.endsWith('/pinned') || path.endsWith('/receipts')) return Promise.resolve({ items: [] });
+      if (/^conversations\/[^/]+\/messages(?:\?.*)?$/.test(path)) return Promise.resolve({ items: [], next_before: null, next_after: null, receipts: [] });
+      if (path.includes('/activity')) return Promise.resolve({ items: [] });
+      throw new Error(`Unexpected API request: ${path}`);
+    }) as unknown as typeof api);
+
+    const { container } = renderChat();
+    const firstButton = await screen.findByRole('button', { name: /Ana Primera Página/ });
+    expect(screen.getByRole('button', { name: 'Conversaciones anteriores' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Conversaciones siguientes' }).hasAttribute('disabled')).toBe(false);
+    fireEvent.click(firstButton);
+    expect(firstButton.getAttribute('aria-current')).toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Conversaciones siguientes' }));
+    const secondButton = await screen.findByRole('button', { name: /Beto Segunda Página/ });
+    expect(screen.getByText('Página 2 de 2')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Conversaciones anteriores' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Conversaciones siguientes' }).hasAttribute('disabled')).toBe(true);
+    expect(secondButton.getAttribute('aria-current')).toBeNull();
+    expect(container.querySelectorAll('.chat-conversations > li')).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Conversaciones anteriores' }));
+    await waitFor(() => expect(container.querySelector('.chat-conversations button')?.textContent).toContain('Ana Primera Página'));
+    expect(container.querySelector('.chat-conversations button')?.getAttribute('aria-current')).toBe('true');
+    expect(screen.getByText('Página 1 de 2')).toBeTruthy();
+  });
+
+  it('discards a delayed list response when the active organization remounts Chat', async () => {
+    let resolveOldPage!: (value: unknown) => void;
+    const oldPage = new Promise(resolve => { resolveOldPage = resolve; });
+    let listCalls = 0;
+    apiMock.mockImplementation(((path: string) => {
+      if (path === 'chat/broadcast-config') return Promise.reject(new Error('Realtime transport unavailable in this test.'));
+      if (path === 'conversations?page=1') {
+        listCalls += 1;
+        return listCalls === 1 ? oldPage : Promise.resolve({
+          items: [listConversation('org-two', 'Contacto de Junta Dos')], page: 1, page_size: 25, total: 1,
+        });
+      }
+      if (path.startsWith('users/') && path.endsWith('/photos/avatar')) return Promise.reject(new Error('No avatar in fixture.'));
+      if (path.startsWith('contacts/')) return Promise.resolve({ name: 'Contacto', presence: 'online', person_id: null });
+      throw new Error(`Unexpected API request: ${path}`);
+    }) as unknown as typeof api);
+
+    const renderOrganization = (organizationId: string) => <Chat
+      key={`${organizationId}:chat`}
+      selfId="user-1"
+      organizationId={organizationId}
+      onStarted={vi.fn()}
+      onOpened={vi.fn()}
+      onContacts={vi.fn()}
+      onVoiceSelection={vi.fn()}
+    />;
+    const view = render(renderOrganization('org-one'));
+    view.rerender(renderOrganization('org-two'));
+
+    expect(await screen.findByRole('button', { name: /Contacto de Junta Dos/ })).toBeTruthy();
+    resolveOldPage({ items: [listConversation('org-one', 'Contacto de Junta Uno')], page: 1, page_size: 25, total: 1 });
+    await act(async () => { await oldPage; });
+    expect(screen.queryByRole('button', { name: /Contacto de Junta Uno/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Contacto de Junta Dos/ })).toBeTruthy();
+  });
+
+  it('replaces the conversation page on refresh without duplicating rows', async () => {
+    const conversations = [listConversation('refresh-one', 'Ana Actualizada'), listConversation('refresh-two', 'Beto Actualizado')];
+    let pageLoads = 0;
+    apiMock.mockImplementation(((path: string) => {
+      if (path === 'chat/broadcast-config') return Promise.reject(new Error('Realtime transport unavailable in this test.'));
+      if (path === 'conversations?page=1') { pageLoads += 1; return Promise.resolve({ items: conversations, page: 1, page_size: 25, total: 2 }); }
+      if (path.startsWith('users/') && path.endsWith('/photos/avatar')) return Promise.reject(new Error('No avatar in fixture.'));
+      if (path.startsWith('contacts/')) return Promise.resolve({ name: 'Contacto', presence: 'online', person_id: null });
+      throw new Error(`Unexpected API request: ${path}`);
+    }) as unknown as typeof api);
+
+    const { container } = renderChat();
+    await screen.findByRole('button', { name: /Ana Actualizada/ });
+    await screen.findByRole('button', { name: /Beto Actualizado/ });
+    await act(async () => { document.dispatchEvent(new Event('srd-chat-change')); });
+    await waitFor(() => expect(pageLoads).toBe(2));
+
+    expect(container.querySelectorAll('.chat-conversations > li')).toHaveLength(2);
+    expect(container.querySelectorAll('.chat-conversations button[aria-current="true"]')).toHaveLength(0);
   });
 });
