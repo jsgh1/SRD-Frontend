@@ -2,7 +2,7 @@ name: Android QA
 
 on:
   pull_request:
-    branches: [dev]
+    branches: [dev, qa, main]
     paths:
       - "apps/mobile/**"
       - ".github/workflows/android-qa-ci.yml"
