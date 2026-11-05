@@ -1,0 +1,65 @@
+export type PersonExportPdfData = {
+  filename: string;
+  date: string;
+  headers: string[];
+  rows: string[][];
+  count: number;
+  language?: 'es' | 'en';
+  logo_data?: string | null;
+};
+
+export function personExportPdfDefinition(data: PersonExportPdfData, organizationName: string) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._ -]{0,119}\.pdf$/.test(data.filename)
+    || !/^\d{4}-\d{2}-\d{2}$/.test(data.date)
+    || data.headers.length !== 11 || data.rows.length > 2000 || data.count !== data.rows.length
+    || data.rows.some(row => row.length !== 11 || row.some(value => typeof value !== 'string'))
+    || data.headers.some(value => typeof value !== 'string')
+    || (data.logo_data != null && !/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(data.logo_data))) {
+    throw new Error('La exportación PDF recibida no tiene un formato válido.');
+  }
+  const weights = [4, 12, 12, 13, 12, 8, 8, 8, 10, 10, 13];
+  const english = data.language === 'en';
+  const available = 1134 - data.headers.length * 7;
+  const total = weights.reduce((sum, value) => sum + value, 0);
+  return {
+    pageSize: 'A3', pageOrientation: 'landscape', pageMargins: [28, 32, 28, 38],
+    info: { title: data.filename.slice(0, -4), subject: english ? 'SRD people list' : 'Listado de personas SRD' },
+    defaultStyle: { font: 'Roboto', fontSize: 7.5, color: '#111827' },
+    content: [
+      ...(data.logo_data ? [{ columns: [
+        { image: data.logo_data, fit: [54, 54], width: 60 },
+        { stack: [
+          { text: english ? 'People list' : 'Listado de personas', bold: true, fontSize: 16, margin: [0, 0, 0, 3] },
+          { text: organizationName, fontSize: 10, margin: [0, 0, 0, 3] },
+          { text: english ? `Date (Colombia): ${data.date}    People: ${data.count}` : `Fecha (Colombia): ${data.date}    Personas: ${data.count}` },
+        ] },
+      ], columnGap: 10, margin: [0, 0, 0, 10] }] : [
+        { text: english ? 'People list' : 'Listado de personas', bold: true, fontSize: 16, margin: [0, 0, 0, 3] },
+        { text: organizationName, fontSize: 10, margin: [0, 0, 0, 3] },
+        { text: english ? `Date (Colombia): ${data.date}    People: ${data.count}` : `Fecha (Colombia): ${data.date}    Personas: ${data.count}`, margin: [0, 0, 0, 10] },
+      ]),
+      { table: {
+        headerRows: 1, dontBreakRows: true,
+        widths: weights.map(value => available * value / total),
+        body: [data.headers.map(text => ({ text, bold: true, fillColor: '#edf4fa' })),
+          ...data.rows.map(row => row.map(text => ({ text })))],
+      }, layout: {
+        hLineColor: () => '#b7c4d0', vLineColor: () => '#b7c4d0',
+        hLineWidth: () => 0.5, vLineWidth: () => 0.5,
+        paddingLeft: () => 3, paddingRight: () => 3,
+        paddingTop: () => 4, paddingBottom: () => 4,
+      } },
+    ],
+    footer: (page: number, pages: number) => ({ text: english ? `Page ${page} of ${pages}` : `Página ${page} de ${pages}`,
+      alignment: 'right', margin: [28, 10, 28, 0], fontSize: 8 }),
+  };
+}
+
+export async function downloadPersonExportPdf(data: PersonExportPdfData, organizationName: string): Promise<void> {
+  const definition = personExportPdfDefinition(data, organizationName);
+  const [{ default: pdfMake }, { default: fonts }] = await Promise.all([
+    import('pdfmake/build/pdfmake.js'), import('pdfmake/build/vfs_fonts.js'),
+  ]);
+  pdfMake.addVirtualFileSystem(fonts);
+  await pdfMake.createPdf(definition).download(data.filename);
+}
